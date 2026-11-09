@@ -1,0 +1,770 @@
+.organization-page .data-panel {
+  overflow: hidden;
+}
+
+.org-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid #e8eee9;
+}
+
+.org-tabs button {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  padding: 12px 16px;
+  color: #64736a;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.org-tabs button.active {
+  border-bottom-color: #17613a;
+  color: #145a34;
+}
+
+.org-panel-heading,
+.org-drawer-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 22px;
+}
+
+.org-panel-heading h2,
+.org-position-list h2,
+.org-drawer-heading h2 {
+  margin: 0;
+  color: #20372a;
+  font-size: 16px;
+}
+
+.org-panel-heading p {
+  margin: 6px 0 0;
+  color: #76847a;
+  font-size: 12px;
+}
+
+.org-tree-name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: calc(var(--org-depth) * 22px);
+}
+
+.org-tree-name small,
+.org-tupoksi-copy small {
+  color: #839087;
+  font-size: 11px;
+}
+
+.org-type {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.org-type.dosen {
+  background: #eaf3ff;
+  color: #315d92;
+}
+
+.org-type.tendik {
+  background: #fff3e5;
+  color: #9b5b13;
+}
+
+.org-parent-tag {
+  display: inline-flex;
+  margin: 2px 4px 2px 0;
+  border-radius: 999px;
+  background: #f0f5f1;
+  padding: 4px 8px;
+  color: #45634e;
+  font-size: 10px;
+}
+
+.org-actions-menu {
+  position: relative;
+}
+
+.org-actions-menu > summary {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid #d8e5dc;
+  border-radius: 6px;
+  background: #fff;
+  color: #355b47;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  list-style: none;
+}
+
+.org-actions-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.org-actions-menu-content {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 5px);
+  right: 0;
+  min-width: 132px;
+  border: 1px solid #e1e9e3;
+  border-radius: 8px;
+  background: #fff;
+  padding: 5px;
+  box-shadow: 0 8px 24px rgba(25, 55, 37, .14);
+}
+
+.org-actions-menu-content button {
+  width: 100%;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 9px 10px;
+  color: #355b47;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.org-actions-menu-content button.danger {
+  color: #9a413c;
+}
+
+.org-actions-menu-content button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.org-tupoksi-layout {
+  display: grid;
+  grid-template-columns: minmax(210px, 28%) 1fr;
+  min-height: 360px;
+}
+
+.org-position-list {
+  border-right: 1px solid #edf1ed;
+  padding: 20px 12px;
+}
+
+.org-position-list h2 {
+  padding: 0 10px 12px;
+}
+
+.org-position-list button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 11px 10px;
+  color: #405249;
+  text-align: left;
+  cursor: pointer;
+}
+
+.org-position-list button.selected {
+  background: #edf7ef;
+  color: #155e36;
+}
+
+.org-position-list button span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.org-position-list button small {
+  color: #a64c43;
+}
+
+.org-position-list button b {
+  min-width: 24px;
+  border-radius: 999px;
+  background: #f1f4f1;
+  padding: 3px 6px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.org-tupoksi-list {
+  min-width: 0;
+  padding-bottom: 20px;
+}
+
+.org-tupoksi-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid #edf1ed;
+  padding: 14px 22px;
+}
+
+.org-tupoksi-row.inactive {
+  background: #fafbfa;
+  color: #828b85;
+}
+
+.org-tupoksi-row > input {
+  min-width: 0;
+  flex: 1;
+  height: 38px;
+  border: 1px solid #dfe7e0;
+  border-radius: 7px;
+  padding: 0 10px;
+}
+
+.org-tupoksi-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+.org-tupoksi-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.org-switch {
+  display: inline-flex;
+  cursor: pointer;
+}
+
+.org-switch input {
+  position: absolute;
+  opacity: 0;
+}
+
+.org-switch span {
+  width: 34px;
+  height: 20px;
+  border-radius: 12px;
+  background: #bdc7bf;
+  transition: background .15s ease;
+}
+
+.org-switch span::after {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #fff;
+  content: '';
+  transition: transform .15s ease;
+}
+
+.org-switch input:checked + span {
+  background: #25834e;
+}
+
+.org-switch input:checked + span::after {
+  transform: translateX(14px);
+}
+
+.org-add-tupoksi {
+  display: flex;
+  gap: 10px;
+  padding: 16px 22px 0;
+}
+
+.org-add-tupoksi input {
+  min-width: 0;
+  height: 42px;
+  flex: 1;
+  border: 1px solid #dfe7e0;
+  border-radius: 8px;
+  padding: 0 12px;
+}
+
+.org-add-tupoksi button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.org-empty {
+  border-top: 1px solid #edf1ed;
+  padding: 30px 22px;
+  color: #7a897f;
+  font-size: 13px;
+}
+
+.org-drawer-backdrop,
+.org-modal-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  background: rgba(15, 32, 21, .45);
+  padding: 24px;
+}
+
+.org-drawer,
+.org-modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 32, 21, .22);
+}
+
+.org-drawer-heading,
+.org-modal-heading {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid #edf1ed;
+  background: #fff;
+  padding: 20px 22px;
+}
+
+.org-modal-heading h2 {
+  margin: 0;
+  color: #20372a;
+  font-size: 18px;
+}
+
+.org-modal-heading small {
+  display: block;
+  margin-top: 6px;
+  color: #76847a;
+  font-size: 12px;
+}
+
+.org-drawer .management-form,
+.organization-modal .management-form {
+  max-width: none;
+  box-shadow: none;
+}
+
+.account-modal {
+  width: min(760px, 100%);
+}
+
+.account-modal .account-form {
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.org-choice-field {
+  min-width: 0;
+  margin: 8px 0 14px;
+  border: 0;
+  padding: 0;
+}
+
+.org-choice-field legend {
+  margin-bottom: 9px;
+  color: #31483a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.org-choice-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.org-choice-cards label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid #dfe7e0;
+  border-radius: 9px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.org-choice-cards label.selected {
+  border-color: #3c9760;
+  background: #f2faf3;
+}
+
+.org-choice-cards input {
+  height: auto;
+  align-self: flex-start;
+}
+
+.org-choice-cards small {
+  color: #758278;
+}
+
+.org-supervisor-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.org-supervisor-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e1e9e2;
+  border-radius: 999px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.org-supervisor-options input,
+.org-switch-field > input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.org-switch-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.org-switch-field span {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.org-switch-field small {
+  color: #78867d;
+}
+
+.page-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.page-message button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.table-actions .table-action:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.account-form-section {
+  display: grid;
+  gap: 12px;
+  border-bottom: 1px solid #edf1ed;
+  padding: 16px 0;
+}
+
+.account-form-section h3 {
+  margin: 0 0 2px;
+  color: #23412e;
+  font-size: 13px;
+}
+
+.org-username-input,
+.org-password-field {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.org-username-input input {
+  min-width: 0;
+  flex: 1;
+  border-radius: 8px 0 0 8px !important;
+}
+
+.org-username-input b {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dfe7e0;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  background: #f6f8f6;
+  padding: 0 11px;
+  color: #6a796f;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.org-username-available,
+.org-username-taken {
+  font-size: 11px;
+}
+
+.org-username-available {
+  color: #197244;
+}
+
+.org-username-taken,
+.org-form-error {
+  color: #b43e36;
+}
+
+.org-password-field {
+  gap: 8px;
+}
+
+.org-password-field input {
+  min-width: 0;
+  flex: 1;
+}
+
+.org-password-field .org-password-visibility {
+  display: grid;
+  width: 42px;
+  min-width: 42px;
+  place-items: center;
+  border: 1px solid #d5e3d8;
+  border-radius: 6px;
+  background: #fff;
+  color: #3e6048;
+  cursor: pointer;
+}
+
+.org-password-visibility svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.org-copy-button {
+  border: 0;
+  background: transparent;
+  color: #17613a;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.org-supervisor-single {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  color: #294a34;
+}
+
+.org-supervisor-warning {
+  border: 1px solid #f0d79a;
+  border-radius: 8px;
+  background: #fff9e9;
+  padding: 11px 12px;
+  color: #7d5b19;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.org-chain-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 3px solid #4b9b66;
+  background: #f3f8f4;
+  padding: 10px 12px;
+  color: #36523f;
+  font-size: 11px;
+}
+
+.org-form-error {
+  border: 1px solid #f0c3bf;
+  border-radius: 8px;
+  background: #fff3f2;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+.account-form-actions {
+  position: sticky;
+  z-index: 1;
+  bottom: -24px;
+  margin: 0 -24px -24px;
+  border-top: 1px solid #edf1ed;
+  background: #fff;
+  padding: 14px 24px;
+}
+
+.org-temporary-password {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 14px 0;
+  border: 1px solid #b6d8bc;
+  border-radius: 10px;
+  background: #f2faf3;
+  padding: 14px;
+}
+
+.org-temporary-password > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+.org-temporary-password span {
+  color: #185f39;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.org-temporary-password small {
+  color: #6d7c70;
+}
+
+.org-unassigned {
+  display: inline-block;
+  border-radius: 999px;
+  background: #fff4d8;
+  padding: 5px 8px;
+  color: #815b10;
+  font-size: 10px;
+}
+
+.account-unassigned-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #516357;
+  font-size: 11px;
+}
+
+.account-unassigned-filter input {
+  width: 15px;
+  height: 15px;
+}
+
+.org-transfer-content {
+  display: grid;
+  gap: 14px;
+  padding: 20px 24px;
+}
+
+.org-transfer-content p {
+  margin: 0;
+  color: #526357;
+}
+
+.org-transfer-content ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  color: #405249;
+  font-size: 12px;
+}
+
+.org-transfer-content select {
+  height: 42px;
+  border: 1px solid #dfe7e0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+}
+
+.mandatory-password-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: #f6f8f6;
+  padding: 20px;
+}
+
+.mandatory-password-page .management-form {
+  display: grid;
+  gap: 14px;
+  width: min(460px, 100%);
+  box-shadow: 0 10px 35px rgba(28, 74, 45, .08);
+}
+
+.mandatory-password-page h1,
+.mandatory-password-page p {
+  margin: 0;
+}
+
+.mandatory-password-page h1 {
+  color: #18472b;
+  font-size: 22px;
+}
+
+.mandatory-password-page p {
+  color: #6b796f;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .org-drawer-backdrop,
+  .org-modal-backdrop {
+    padding: 12px;
+  }
+
+  .org-drawer,
+  .org-modal {
+    max-height: calc(100vh - 24px);
+  }
+
+  .org-tupoksi-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .org-position-list {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    border-right: 0;
+    border-bottom: 1px solid #edf1ed;
+  }
+
+  .org-position-list h2 {
+    display: none;
+  }
+
+  .org-position-list button {
+    min-width: 170px;
+  }
+
+  .org-panel-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .org-temporary-password {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
