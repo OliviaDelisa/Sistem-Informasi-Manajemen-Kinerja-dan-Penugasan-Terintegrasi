@@ -229,6 +229,32 @@ async function migrateLegacySchema(connection) {
             }
         }
     }
+
+    if (await tableExists(connection, "penugasan")) {
+        for (const chk of ["ck_penugasan_tolak", "ck_penugasan_batal", "ck_penugasan_selesai"]) {
+            try {
+                await connection.query(`ALTER TABLE penugasan DROP CHECK \`${chk}\``);
+            } catch (_) {}
+        }
+        try {
+            await connection.query("ALTER TABLE penugasan DROP FOREIGN KEY fk_penugasan_delegasi");
+        } catch (_) {}
+
+        if (!(await exists(connection, "penugasan", "id_kepanitiaan"))) {
+            await connection.query("ALTER TABLE penugasan ADD COLUMN id_kepanitiaan INT UNSIGNED NULL AFTER id_penugasan_asal");
+        }
+        if (!(await exists(connection, "penugasan", "persen_progres"))) {
+            await connection.query("ALTER TABLE penugasan ADD COLUMN persen_progres INT NOT NULL DEFAULT 0 AFTER status");
+        }
+        if (!(await exists(connection, "penugasan", "catatan_progres"))) {
+            await connection.query("ALTER TABLE penugasan ADD COLUMN catatan_progres TEXT NULL AFTER persen_progres");
+        }
+        await connection.query("ALTER TABLE penugasan MODIFY COLUMN prioritas VARCHAR(20) NOT NULL DEFAULT 'Sedang'");
+        await connection.query("ALTER TABLE penugasan MODIFY COLUMN status VARCHAR(30) NOT NULL DEFAULT 'Ditugaskan'");
+        await connection.query("ALTER TABLE penugasan MODIFY COLUMN tgl_penugasan DATE NOT NULL");
+        await connection.query("ALTER TABLE penugasan MODIFY COLUMN tgl_selesai DATE NULL");
+        await connection.query("ALTER TABLE penugasan MODIFY COLUMN tgl_pembatalan DATE NULL");
+    }
 }
 
 async function initializeDatabase() {

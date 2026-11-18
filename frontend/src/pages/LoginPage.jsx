@@ -33,6 +33,37 @@ export default function LoginPage({ onLogin, error }) {
             <div className="form-options"><label className="check-label"><input type="checkbox" /> Ingatkan saya di perangkat ini</label><a href="#forgot">Lupa password?</a></div>
             <button type="submit" className="primary-button" disabled={isSubmitting}>{isSubmitting ? 'MEMPROSES...' : 'LOGIN'}</button>
           </form>
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid #e5eee7' }}>
+            <small style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#547263', marginBottom: 8 }}>
+              LOGIN CEPAT PER ROLE (KLIK UNTUK MASUK):
+            </small>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {[
+                { label: 'Dekan (Penugasan Pimpinan)', user: 'dekan@unand.ac.id' },
+                { label: 'Kasi (Penugasan Masuk)', user: 'kasi@unand.ac.id' },
+                { label: 'Kepala Kantor', user: 'kepalakantor@unand.ac.id' },
+                { label: 'Superadmin', user: 'superadmin@unand.ac.id' },
+              ].map((item) => (
+                <button
+                  key={item.user}
+                  type="button"
+                  onClick={() => onLogin({ username: item.user, password: 'password12345' })}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    border: '1px solid #cde4d3',
+                    background: '#f2f7f3',
+                    color: '#004f28',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <p className="login-footer">SIM-KP FTI UNAND 2026</p>
         </div>
       </section>

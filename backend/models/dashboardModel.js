@@ -6,7 +6,7 @@ async function getSummary() {
     const [[roles]] = await db.execute("SELECT COUNT(*) AS total FROM `role`");
     const [[positions]] = await db.execute("SELECT COUNT(*) AS total FROM jabatan");
     const [roleRows] = await db.execute(
-        "SELECT id_role, nama_role, COUNT(p.id_pengguna) AS total FROM `role` r LEFT JOIN pengguna p ON p.id_role = r.id_role GROUP BY r.id_role, r.nama_role ORDER BY r.id_role",
+        "SELECT r.id_role, r.nama_role, COUNT(p.id_pengguna) AS total FROM `role` r LEFT JOIN pengguna p ON p.id_role = r.id_role GROUP BY r.id_role, r.nama_role ORDER BY r.id_role",
     );
 
     return {

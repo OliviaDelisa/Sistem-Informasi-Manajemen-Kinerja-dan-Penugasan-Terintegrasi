@@ -4,6 +4,7 @@ const cors = require("cors");
 const db = require("./config/database");
 const authRoutes = require("./routes/authRoutes");
 const managementRoutes = require("./routes/managementRoutes");
+const penugasanRoutes = require("./routes/penugasanRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -12,6 +13,8 @@ app.use(cors());
 app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/management", managementRoutes);
+app.use("/api", penugasanRoutes);
+app.use("/", penugasanRoutes);
 
 app.get("/", (req, res) => {
     res.send("Backend Sistem Informasi Manajemen Kinerja Berhasil Berjalan!");

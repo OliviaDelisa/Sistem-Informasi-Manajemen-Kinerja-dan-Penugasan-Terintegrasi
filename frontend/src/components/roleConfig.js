@@ -7,7 +7,7 @@ export const roleConfig = {
     color: 'green',
     title: 'Dashboard',
     description: 'Pantau aktivitas dan kinerja sistem secara menyeluruh.',
-    menu: [['Dashboard', 'grid'], ['Manajemen Akun & Hak Akses', 'users'], ['Jabatan, Unit Kerja & Tupoksi', 'briefcase'], ['Kepanitiaan', 'calendar'], ['Impor Presensi', 'upload'], ['Audit Trail', 'shield']],
+    menu: [['Dashboard', 'grid'], ['Manajemen Akun & Hak Akses', 'users'], ['Jabatan, Unit Kerja & Tupoksi', 'briefcase'], ['Penugasan', 'briefcase'], ['Penugasan Masuk', 'briefcase'], ['Kepanitiaan', 'calendar'], ['Impor Presensi', 'upload'], ['Audit Trail', 'shield']],
   },
   dekan: {
     roleKey: 'dekan',
@@ -17,7 +17,7 @@ export const roleConfig = {
     color: 'green',
     title: 'Dashboard',
     description: 'Pantau capaian kinerja dan persetujuan di lingkungan fakultas.',
-    menu: [['Dashboard', 'grid'], ['Kinerja Fakultas', 'activity'], ['Persetujuan Kinerja', 'file'], ['Dosen & Tendik', 'users'], ['Laporan', 'file']],
+    menu: [['Dashboard', 'grid'], ['Penugasan', 'briefcase'], ['Kinerja Fakultas', 'activity'], ['Persetujuan Kinerja', 'file'], ['Dosen & Tendik', 'users'], ['Laporan', 'file']],
   },
   kepalaKantor: {
     roleKey: 'kepalaKantor',
