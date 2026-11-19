@@ -486,6 +486,14 @@ async function seedDatabase(connection) {
            AND NOT EXISTS (SELECT 1 FROM pengguna p WHERE p.id_jabatan = j.id_jabatan AND p.status_akun = 'aktif')`,
         allowedPositionNames,
     );
+
+    // Seed sample logbook data jika tabel kosong
+    try {
+        const { seedSampleLogbooks } = require('../models/logbookModel');
+        await seedSampleLogbooks(connection);
+    } catch (err) {
+        console.warn('Seed logbook dilewati (mungkin tabel belum siap):', err.message);
+    }
 }
 
 module.exports = { seedDatabase };

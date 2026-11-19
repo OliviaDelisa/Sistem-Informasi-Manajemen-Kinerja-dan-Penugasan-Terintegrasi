@@ -14,6 +14,7 @@ import PenugasanMasuk from './pages/PenugasanMasuk'
 import RiwayatPenugasan from './pages/RiwayatPenugasan'
 import PenugasanSidebar from './components/PenugasanSidebar'
 import PenugasanHeader from './components/PenugasanHeader'
+import LogbookPage from './pages/LogbookPage'
 
 function App() {
   const [loggedIn, setLoggedIn] = useState(false)
@@ -111,7 +112,10 @@ function App() {
               onClearSelectedId={() => setSelectedRiwayatId(null)}
             />
           )}
-          {activeMenu !== 'penugasan' && activeMenu !== 'penugasan-masuk' && activeMenu !== 'riwayat' && (
+          {activeMenu === 'logbook' && (
+            <LogbookPage user={user} />
+          )}
+          {activeMenu !== 'penugasan' && activeMenu !== 'penugasan-masuk' && activeMenu !== 'riwayat' && activeMenu !== 'logbook' && (
             <div className="p-12 flex flex-col items-center justify-center min-h-[400px] text-center">
               <div className="w-16 h-16 rounded-2xl bg-[#DCFCE7] text-[#0F5132] flex items-center justify-center text-2xl mb-4 shadow-xs">
                 📁
@@ -150,6 +154,7 @@ function App() {
   if (activeMenu === 'Penugasan' || activeMenu === 'Penugasan Saya') page = <PenugasanPimpinan user={user} />
   if (activeMenu === 'Penugasan Masuk') page = <PenugasanMasuk user={user} />
   if (activeMenu === 'Riwayat Penugasan') page = <RiwayatPenugasan user={user} />
+  if (activeMenu === 'Logbook' || activeMenu === 'Logbook Kegiatan' || activeMenu === 'logbook') page = <LogbookPage user={user} />
 
   return (
     <DashboardPage

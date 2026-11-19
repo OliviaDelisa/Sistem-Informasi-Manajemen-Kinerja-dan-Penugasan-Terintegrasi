@@ -4,6 +4,25 @@ export default function LoginPage({ onLogin, error }) {
   const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const quickLogins = [
+    { label: 'Dosen', desc: 'Dosen SI', user: 'dosen@unand.ac.id', pass: 'dosen123456' },
+    { label: 'Tendik', desc: 'Staf Keuangan', user: 'tendik@unand.ac.id', pass: 'tendik123456' },
+    { label: 'Dekan', desc: 'Pimpinan', user: 'dekan@unand.ac.id', pass: 'dekan123' },
+    { label: 'Kepala Kantor', desc: 'Kantor FTI', user: 'kepalakantor@unand.ac.id', pass: 'kantor123456' },
+    { label: 'Kasi', desc: 'Kasi Keuangan', user: 'kasi@unand.ac.id', pass: 'kasi123456' },
+    { label: 'Superadmin', desc: 'Staf SDM', user: 'superadmin@unand.ac.id', pass: 'admin123456' },
+  ]
+
+  const handleQuickLogin = async (userEmail, pass) => {
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    try {
+      await onLogin({ username: userEmail, password: pass })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <main className="login-page">
       <section className="login-brand-panel">
@@ -34,32 +53,46 @@ export default function LoginPage({ onLogin, error }) {
             <button type="submit" className="primary-button" disabled={isSubmitting}>{isSubmitting ? 'MEMPROSES...' : 'LOGIN'}</button>
           </form>
           <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid #e5eee7' }}>
-            <small style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#547263', marginBottom: 8 }}>
-              LOGIN CEPAT PER ROLE (KLIK UNTUK MASUK):
-            </small>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {[
-                { label: 'Dekan (Penugasan Pimpinan)', user: 'dekan@unand.ac.id' },
-                { label: 'Kasi (Penugasan Masuk)', user: 'kasi@unand.ac.id' },
-                { label: 'Kepala Kantor', user: 'kepalakantor@unand.ac.id' },
-                { label: 'Superadmin', user: 'superadmin@unand.ac.id' },
-              ].map((item) => (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <small style={{ fontSize: 10, fontWeight: 700, color: '#547263', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                LOGIN CEPAT PER ROLE:
+              </small>
+              <small style={{ fontSize: 9, color: '#829188' }}>Klik untuk langsung masuk</small>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+              {quickLogins.map((item) => (
                 <button
                   key={item.user}
                   type="button"
-                  onClick={() => onLogin({ username: item.user, password: 'password12345' })}
+                  disabled={isSubmitting}
+                  onClick={() => handleQuickLogin(item.user, item.pass)}
                   style={{
-                    padding: '6px 10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    padding: '7px 10px',
                     borderRadius: 6,
                     border: '1px solid #cde4d3',
                     background: '#f2f7f3',
                     color: '#004f28',
-                    fontSize: 10,
-                    fontWeight: 700,
-                    cursor: 'pointer'
+                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                    opacity: isSubmitting ? 0.6 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isSubmitting) {
+                      e.currentTarget.style.background = '#e2f0e6'
+                      e.currentTarget.style.borderColor = '#9ec8ab'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#f2f7f3'
+                    e.currentTarget.style.borderColor = '#cde4d3'
                   }}
                 >
-                  {item.label}
+                  <span style={{ fontSize: 11, fontWeight: 800 }}>{item.label}</span>
+                  <span style={{ fontSize: 9, color: '#4f705b' }}>{item.desc}</span>
                 </button>
               ))}
             </div>

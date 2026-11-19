@@ -5,7 +5,7 @@ const MENU_BY_ROLE = {
     { id: 'dashboard', label: 'Dashboard Kinerja', icon: 'grid' },
     { id: 'penugasan', label: 'Manajemen Penugasan', icon: 'clipboard' },
     { id: 'riwayat', label: 'Riwayat Penugasan', icon: 'history' },
-    { id: 'logbook', label: 'Review & Validasi Logbook', icon: 'check-badge' },
+    { id: 'logbook', label: 'Review & Validasi Logbook', icon: 'book', badge: '1 Antrean', badgeStyle: 'bg-amber-100 text-amber-800' },
     { id: 'kepanitiaan', label: 'Pantau Kepanitiaan', icon: 'users' },
     { id: 'rekap', label: 'Rekap Kinerja & Presensi', icon: 'bar-chart' },
     { id: 'spk', label: 'Rekomendasi Tugas (SPK)', icon: 'search-user' },
@@ -16,7 +16,7 @@ const MENU_BY_ROLE = {
     { id: 'penugasan-masuk', label: 'Penugasan Masuk', icon: 'inbox' },
     { id: 'penugasan', label: 'Kelola Penugasan Bawahan', icon: 'clipboard' },
     { id: 'riwayat', label: 'Riwayat Penugasan', icon: 'history' },
-    { id: 'logbook', label: 'Review & Validasi Logbook', icon: 'check-badge' },
+    { id: 'logbook', label: 'Review dan Validasi Logbook', icon: 'book' },
     { id: 'rekap', label: 'Rekap Kinerja & Presensi', icon: 'bar-chart' },
     { id: 'spk', label: 'Rekomendasi Penerima (SPK)', icon: 'users' },
     { id: 'laporan', label: 'Laporan', icon: 'file-text' }
@@ -26,7 +26,7 @@ const MENU_BY_ROLE = {
     { id: 'penugasan-masuk', label: 'Penugasan Masuk', icon: 'inbox' },
     { id: 'penugasan', label: 'Penugasan ke Tendik', icon: 'send' },
     { id: 'riwayat', label: 'Riwayat Penugasan', icon: 'history' },
-    { id: 'logbook', label: 'Review Logbook Tendik', icon: 'check-badge' },
+    { id: 'logbook', label: 'Review dan Validasi Logbook', icon: 'book' },
     { id: 'rekap', label: 'Rekap Kinerja', icon: 'bar-chart' },
     { id: 'spk', label: 'Rekomendasi Penerima (SPK)', icon: 'users' },
     { id: 'laporan', label: 'Laporan', icon: 'file-text' }
@@ -35,22 +35,64 @@ const MENU_BY_ROLE = {
     { id: 'dashboard', label: 'Dashboard Kinerja', icon: 'grid' },
     { id: 'penugasan-masuk', label: 'Penugasan Masuk & Progres', icon: 'inbox' },
     { id: 'riwayat', label: 'Riwayat Penugasan', icon: 'history' },
-    { id: 'logbook', label: 'Logbook Kegiatan', icon: 'check-badge' },
+    { id: 'logbook', label: 'Logbook Kegiatan', icon: 'book' },
     { id: 'rekap', label: 'Rekap Kinerja & Presensi', icon: 'bar-chart' }
   ],
   dosen: [
-    { id: 'dashboard', label: 'Dashboard Kinerja', icon: 'grid' },
+    { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
+    { id: 'kepanitiaan', label: 'Kepanitiaan', icon: 'users', badge: '1 Baru', badgeStyle: 'bg-[#9A3412] text-white' },
+    { id: 'logbook', label: 'Logbook', icon: 'book' },
     { id: 'riwayat', label: 'Riwayat Penugasan', icon: 'history' },
-    { id: 'kepanitiaan', label: 'Kepanitiaan Saya', icon: 'users' },
-    { id: 'logbook', label: 'Logbook Kegiatan', icon: 'check-badge' }
+    { id: 'laporan', label: 'Laporan Saya', icon: 'file-text' }
   ]
 };
 
 function MenuIcon({ type }) {
   if (type === 'grid') {
     return (
-      <svg className="w-4 h-4 shrink-0" viewBox="0 0 15 15" fill="none">
-        <path d="M8.33 5V0H15V5H8.33ZM0 8.33V0H6.67V8.33H0ZM8.33 15V6.67H15V15H8.33ZM0 15V10H6.67V15H0Z" fill="currentColor" />
+      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      </svg>
+    );
+  }
+  if (type === 'users') {
+    return (
+      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    );
+  }
+  if (type === 'book' || type === 'check-badge') {
+    return (
+      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        <path d="m9 10 2 2 4-4" />
+      </svg>
+    );
+  }
+  if (type === 'history') {
+    return (
+      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+        <path d="M3 3v5h5" />
+        <path d="M12 7v5l4 2" />
+      </svg>
+    );
+  }
+  if (type === 'file-text' || type === 'bar-chart') {
+    return (
+      <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
       </svg>
     );
   }
@@ -93,8 +135,9 @@ export default function PenugasanSidebar({
           </div>
 
           <div>
-            <span className="inline-block px-2 py-0.5 rounded bg-[#DCFCE7] text-[#14532D] text-[10px] font-bold tracking-wider uppercase">
-              {userPosition}
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#DCFCE7] text-[#14532D] text-[10px] font-bold tracking-wider uppercase">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A]" />
+              <span>{roleKey === 'dosen' ? 'DOSEN FTI' : userPosition}</span>
             </span>
           </div>
         </div>
@@ -120,6 +163,17 @@ export default function PenugasanSidebar({
                   <MenuIcon type={item.icon} />
                   <span>{item.label}</span>
                 </div>
+                {item.badge && (
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                      isActive && item.badgeStyle?.includes('bg-[#FEF3C7]')
+                        ? 'bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]'
+                        : item.badgeStyle || (isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-700')
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
               </button>
             );
           })}

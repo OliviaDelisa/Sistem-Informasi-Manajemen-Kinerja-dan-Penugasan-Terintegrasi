@@ -5,6 +5,7 @@ const db = require("./config/database");
 const authRoutes = require("./routes/authRoutes");
 const managementRoutes = require("./routes/managementRoutes");
 const penugasanRoutes = require("./routes/penugasanRoutes");
+const logbookRoutes = require("./routes/logbookRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -14,6 +15,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/management", managementRoutes);
 app.use("/api", penugasanRoutes);
+app.use("/api", logbookRoutes);
 app.use("/", penugasanRoutes);
 
 app.get("/", (req, res) => {

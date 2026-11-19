@@ -255,6 +255,24 @@ async function migrateLegacySchema(connection) {
         await connection.query("ALTER TABLE penugasan MODIFY COLUMN tgl_selesai DATE NULL");
         await connection.query("ALTER TABLE penugasan MODIFY COLUMN tgl_pembatalan DATE NULL");
     }
+
+    if (await tableExists(connection, "logbook")) {
+        if (!(await exists(connection, "logbook", "judul"))) {
+            await connection.query("ALTER TABLE logbook ADD COLUMN judul VARCHAR(255) NULL AFTER kategori");
+        }
+        if (!(await exists(connection, "logbook", "waktu"))) {
+            await connection.query("ALTER TABLE logbook ADD COLUMN waktu VARCHAR(100) NULL AFTER tgl_kegiatan");
+        }
+        if (!(await exists(connection, "logbook", "nomor_sk"))) {
+            await connection.query("ALTER TABLE logbook ADD COLUMN nomor_sk VARCHAR(255) NULL AFTER judul");
+        }
+    }
+
+    if (await tableExists(connection, "bukti_logbook")) {
+        if (!(await exists(connection, "bukti_logbook", "ukuran_berkas"))) {
+            await connection.query("ALTER TABLE bukti_logbook ADD COLUMN ukuran_berkas VARCHAR(50) NULL AFTER jenis_berkas");
+        }
+    }
 }
 
 async function initializeDatabase() {
