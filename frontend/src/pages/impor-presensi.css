@@ -46,7 +46,7 @@
 
 .attendance-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -72,6 +72,10 @@
 
 .attendance-summary .attendance-valid-number {
   color: #197244;
+}
+
+.attendance-summary .attendance-warning-number {
+  color: #b4690e;
 }
 
 .attendance-summary .attendance-invalid-number {
@@ -134,7 +138,8 @@
 }
 
 .attendance-status,
-.attendance-validation {
+.attendance-validation,
+.attendance-chip {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
@@ -143,28 +148,29 @@
   font-weight: 700;
 }
 
+.attendance-chip {
+  background: #eef4f0;
+  color: #355443;
+}
+
+.attendance-status.closed,
 .attendance-status.hadir,
 .attendance-validation.valid {
   background: #e9f6ed;
   color: #1f603e;
 }
 
-.attendance-status.terlambat,
-.attendance-validation.invalid {
-  background: #fff0ef;
-  color: #a53d36;
-}
-
-.attendance-status.izin,
-.attendance-status.sakit,
-.attendance-status.cuti {
+.attendance-status.open,
+.attendance-validation.incomplete {
   background: #fff5df;
   color: #896116;
 }
 
-.attendance-status.alpa {
-  background: #f0eeee;
-  color: #665e5e;
+.attendance-status.unknown,
+.attendance-status.terlambat,
+.attendance-validation.invalid {
+  background: #fff0ef;
+  color: #a53d36;
 }
 
 .attendance-import-note {
@@ -172,6 +178,61 @@
   padding: 12px 18px;
   color: #78867d;
   font-size: 10px;
+}
+
+.attendance-preview-box {
+  margin-bottom: 18px;
+  border-color: #b7d7c2;
+}
+
+.attendance-preview-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.attendance-recap-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.attendance-date-filter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.attendance-clear-date {
+  position: absolute;
+  right: 28px;
+  border: 0;
+  background: transparent;
+  color: #7d8e84;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 2px 5px;
+}
+
+.attendance-clear-date:hover {
+  color: #a53d36;
+}
+
+.attendance-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #196b3d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.attendance-back-link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 760px) {
@@ -191,6 +252,7 @@
   }
 
   .attendance-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 

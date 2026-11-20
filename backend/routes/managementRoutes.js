@@ -24,5 +24,8 @@ router.post("/positions/:id/tupoksi", controller.createTupoksi);
 router.put("/tupoksi/:id", controller.updateTupoksi);
 router.patch("/tupoksi/:id/status", controller.setTupoksiActive);
 router.get("/dashboard-summary", controller.getDashboardSummary);
+router.get("/presensi", controller.listPresensi);
+router.get("/presensi/pegawai/:nomorPegawai", controller.getPresensiByEmployee);
+router.post("/presensi/impor", controller.importPresensi);
 
 module.exports = router;

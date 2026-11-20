@@ -212,24 +212,31 @@ module.exports = [
     ) ENGINE=InnoDB`,
     `CREATE TABLE IF NOT EXISTS presensi (
         id_presensi INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        id_pengguna INT UNSIGNED NOT NULL,
+        id_pengguna INT UNSIGNED NULL,
         id_impor INT UNSIGNED NULL,
-        tgl_presensi DATE NOT NULL,
-        jam_masuk TIME NULL,
-        jam_mulai_istirahat TIME NULL,
-        jam_selesai_istirahat TIME NULL,
-        jam_keluar TIME NULL,
-        status_presensi ENUM('hadir','terlambat','izin','sakit','cuti','alpa') NOT NULL,
+        tgl_sesi DATE NOT NULL,
+        nomor_pegawai VARCHAR(30) NOT NULL,
+        nama_pegawai VARCHAR(100) NOT NULL,
+        email VARCHAR(100) NOT NULL,
+        unit VARCHAR(100) NOT NULL,
+        status_kepegawaian VARCHAR(30) NULL,
+        shift VARCHAR(60) NULL,
+        lokasi VARCHAR(150) NULL,
+        mode_kerja VARCHAR(20) NOT NULL DEFAULT 'WFO',
+        tipe_sesi VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+        status_sesi ENUM('OPEN','CLOSED') NOT NULL DEFAULT 'OPEN',
+        event_wajib TINYINT UNSIGNED NOT NULL DEFAULT 4,
+        event_selesai TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        jam_mulai DATETIME NULL,
+        jam_akhir DATETIME NULL,
         PRIMARY KEY (id_presensi),
-        UNIQUE KEY uq_presensi_harian (id_pengguna, tgl_presensi),
-        CONSTRAINT fk_presensi_pengguna FOREIGN KEY (id_pengguna) REFERENCES pengguna (id_pengguna),
+        UNIQUE KEY uq_presensi_sesi (nomor_pegawai, tgl_sesi),
+        KEY idx_presensi_pengguna_tgl (id_pengguna, tgl_sesi),
+        KEY idx_presensi_email_tgl (email, tgl_sesi),
+        CONSTRAINT fk_presensi_pengguna FOREIGN KEY (id_pengguna) REFERENCES pengguna (id_pengguna) ON DELETE SET NULL,
         CONSTRAINT fk_presensi_impor FOREIGN KEY (id_impor) REFERENCES impor_presensi (id_impor) ON DELETE SET NULL,
-        CONSTRAINT ck_presensi_urutan CHECK (
-            (jam_masuk IS NULL OR jam_mulai_istirahat IS NULL OR jam_mulai_istirahat >= jam_masuk)
-            AND (jam_mulai_istirahat IS NULL OR jam_selesai_istirahat IS NULL OR jam_selesai_istirahat >= jam_mulai_istirahat)
-            AND (jam_selesai_istirahat IS NULL OR jam_keluar IS NULL OR jam_keluar >= jam_selesai_istirahat)
-            AND (jam_masuk IS NULL OR jam_keluar IS NULL OR jam_keluar >= jam_masuk)),
-        CONSTRAINT ck_presensi_hadir CHECK (status_presensi NOT IN ('hadir','terlambat') OR jam_masuk IS NOT NULL)
+        CONSTRAINT ck_presensi_event CHECK (event_wajib >= 1 AND event_selesai <= event_wajib),
+        CONSTRAINT ck_presensi_waktu CHECK (jam_mulai IS NULL OR jam_akhir IS NULL OR jam_akhir >= jam_mulai)
     ) ENGINE=InnoDB`,
     `CREATE TABLE IF NOT EXISTS audit_trail (
         id_aktivitas INT UNSIGNED NOT NULL AUTO_INCREMENT,

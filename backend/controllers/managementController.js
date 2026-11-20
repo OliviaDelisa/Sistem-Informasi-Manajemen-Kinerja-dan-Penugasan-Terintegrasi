@@ -5,6 +5,8 @@ const unitKerjaModel = require("../models/unitKerjaModel");
 const jabatanModel = require("../models/jabatanModel");
 const tupoksiModel = require("../models/tupoksiModel");
 const dashboardModel = require("../models/dashboardModel");
+const presensiModel = require("../models/presensiModel");
+const imporPresensiModel = require("../models/imporPresensiModel");
 const db = require("../config/database");
 const crypto = require("node:crypto");
 
@@ -391,6 +393,70 @@ async function transferSubordinates(req, res) {
     }
 }
 
+async function listPresensi(req, res) {
+    try {
+        const { periode, tanggal, search } = req.query;
+        const [{ employees, summary }, periods, imports] = await Promise.all([
+            presensiModel.findEmployeeSummary({ periode, tanggal, search }),
+            presensiModel.listAvailablePeriods(),
+            imporPresensiModel.findAll(),
+        ]);
+        return res.json({ employees, summary, periods, imports: imports.slice(0, 10) });
+    } catch (error) {
+        console.error("Gagal mengambil data presensi:", error);
+        return res.status(500).json({ message: "Data presensi tidak dapat diambil." });
+    }
+}
+
+async function getPresensiByEmployee(req, res) {
+    try {
+        const { nomorPegawai } = req.params;
+        const { periode } = req.query;
+        if (!nomorPegawai) {
+            return res.status(400).json({ message: "Nomor pegawai wajib diisi." });
+        }
+        const sessions = await presensiModel.findAll({ nomorPegawai, periode });
+        if (!sessions.length) {
+            return res.status(404).json({ message: "Data presensi pegawai tidak ditemukan." });
+        }
+        const latest = sessions[0];
+        const employee = {
+            nomor_pegawai: latest.nomor_pegawai,
+            nama_pegawai: latest.nama_pegawai,
+            email: latest.email,
+            unit: latest.unit,
+            status_kepegawaian: latest.status_kepegawaian,
+        };
+        return res.json({ employee, sessions });
+    } catch (error) {
+        console.error("Gagal mengambil detail presensi pegawai:", error);
+        return res.status(500).json({ message: "Detail presensi pegawai tidak dapat diambil." });
+    }
+}
+
+async function importPresensi(req, res) {
+    try {
+        const { idPengimpor, namaBerkas, rows } = req.body;
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return res.status(400).json({ message: "Tidak ada baris data presensi untuk diimpor." });
+        }
+
+        const result = await presensiModel.importBatch({ idPengimpor, namaBerkas, rows });
+        const parts = [];
+        if (result.baru > 0) parts.push(`${result.baru} data baru disimpan`);
+        if (result.diperbarui > 0) parts.push(`${result.diperbarui} data diperbarui`);
+        if (result.duplikat > 0) parts.push(`${result.duplikat} data duplikat dilewati`);
+        const message = parts.length
+            ? `Impor selesai: ${parts.join(", ")}.`
+            : "Semua data pada file sudah tersimpan sebelumnya (tidak ada data baru).";
+
+        return res.status(201).json({ message, result });
+    } catch (error) {
+        console.error("Gagal mengimpor presensi:", error);
+        return res.status(400).json({ message: friendlyDatabaseError(error) || "Gagal menyimpan data presensi." });
+    }
+}
+
 module.exports = {
     listUsers,
     createUser,
@@ -412,5 +478,8 @@ module.exports = {
     listSubordinates,
     listSupervisorOptions,
     transferSubordinates,
+    listPresensi,
+    getPresensiByEmployee,
+    importPresensi,
     getDashboardSummary,
 };

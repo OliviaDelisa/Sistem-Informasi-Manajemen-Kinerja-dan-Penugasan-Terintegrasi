@@ -45,7 +45,7 @@ function App() {
   let page
   if (activeMenu === 'Manajemen Akun & Hak Akses') page = <AccountManagementPage />
   if (activeMenu === 'Jabatan, Unit Kerja & Tupoksi') page = <PositionManagementPage />
-  if (activeMenu === 'Impor Presensi') page = <ImporPresensiPage />
+  if (activeMenu === 'Impor Presensi') page = <ImporPresensiPage user={user} />
 
   return (
     <DashboardPage

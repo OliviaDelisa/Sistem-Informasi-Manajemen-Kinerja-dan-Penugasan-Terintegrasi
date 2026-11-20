@@ -34,3 +34,14 @@ export const setTupoksiActive = (id, aktif) => request(`/management/tupoksi/${id
 export const getSubordinates = (id) => request(`/management/users/${id}/subordinates`)
 export const getSupervisorOptions = (id) => request(`/management/users/${id}/supervisor-options`)
 export const transferSubordinates = (id, newSupervisorId) => request(`/management/users/${id}/transfer-subordinates`, { method: 'POST', body: JSON.stringify({ newSupervisorId }) })
+export const getPresensi = (params = {}) => {
+  const clean = Object.fromEntries(Object.entries(params).filter(([, value]) => value))
+  const query = new URLSearchParams(clean).toString()
+  return request(`/management/presensi${query ? `?${query}` : ''}`)
+}
+export const getPresensiByEmployee = (nomorPegawai, params = {}) => {
+  const clean = Object.fromEntries(Object.entries(params).filter(([, value]) => value))
+  const query = new URLSearchParams(clean).toString()
+  return request(`/management/presensi/pegawai/${encodeURIComponent(nomorPegawai)}${query ? `?${query}` : ''}`)
+}
+export const importPresensi = (data) => request('/management/presensi/impor', { method: 'POST', body: JSON.stringify(data) })

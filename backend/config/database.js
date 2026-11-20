@@ -229,6 +229,14 @@ async function migrateLegacySchema(connection) {
             }
         }
     }
+
+    if (
+        await tableExists(connection, "presensi") &&
+        await exists(connection, "presensi", "tgl_presensi") &&
+        !(await exists(connection, "presensi", "tgl_sesi"))
+    ) {
+        await connection.query("DROP TABLE presensi");
+    }
 }
 
 async function initializeDatabase() {
