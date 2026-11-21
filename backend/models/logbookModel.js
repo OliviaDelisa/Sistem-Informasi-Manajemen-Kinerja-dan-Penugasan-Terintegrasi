@@ -41,11 +41,53 @@ function decodeLogbookImage(data, mimeType) {
 }
 
 function resolveEvidenceDiskPath(location) {
-    if (typeof location !== "string" || !location.startsWith("/uploads/")) return null;
-    const relativePath = location.slice("/uploads/".length).replace(/[\\/]/g, path.sep);
-    const absolutePath = path.resolve(uploadRoot, relativePath);
-    if (!absolutePath.startsWith(`${uploadRoot}${path.sep}`)) return null;
+    if (typeof location !== "string" || !location.trim()) return null;
+    const normalized = location.trim().replace(/\\/g, "/");
+    const root = path.resolve(uploadRoot);
+    let absolutePath;
+
+    if (/^\/?uploads\//i.test(normalized)) {
+        absolutePath = path.resolve(root, normalized.replace(/^\/?uploads\//i, ""));
+    } else if (/^(logbook|eviden)\//i.test(normalized)) {
+        absolutePath = path.resolve(root, normalized);
+    } else if (path.isAbsolute(location)) {
+        absolutePath = path.resolve(location);
+    } else {
+        return null;
+    }
+
+    const relativeToRoot = path.relative(root, absolutePath);
+    if (!relativeToRoot || relativeToRoot === ".." || relativeToRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToRoot)) return null;
     return absolutePath;
+}
+
+async function getEvidenceContentType(diskPath, evidence) {
+    const handle = await fs.open(diskPath, "r");
+    const signature = Buffer.alloc(16);
+    let signatureLength = 0;
+    try {
+        const result = await handle.read(signature, 0, signature.length, 0);
+        signatureLength = result.bytesRead;
+    } finally {
+        await handle.close();
+    }
+
+    const header = signature.subarray(0, signatureLength);
+    if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) return "image/jpeg";
+    if (header.length >= 8 && header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+    if (header.subarray(0, 5).toString("ascii") === "%PDF-") return "application/pdf";
+    if (header.subarray(0, 3).toString("ascii") === "GIF") return "image/gif";
+    if (header.subarray(0, 2).toString("ascii") === "BM") return "image/bmp";
+    if (header.subarray(0, 4).toString("ascii") === "RIFF" && header.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+
+    const storedMime = String(evidence.jenis_berkas || "").toLowerCase();
+    const ext = path.extname(evidence.nama_berkas || diskPath).toLowerCase();
+    const knownTypes = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif",
+        ".bmp": "image/bmp", ".webp": "image/webp", ".pdf": "application/pdf",
+    };
+    if (storedMime.startsWith("image/") || storedMime === "application/pdf") return storedMime;
+    return knownTypes[ext] || "application/octet-stream";
 }
 
 function normalizePeriode(p) {
@@ -95,6 +137,7 @@ async function findByUserId(idPengguna, filters = {}) {
         SELECT 
             l.id_logbook AS id,
             l.id_pengguna,
+            pemilik.nama AS namaBawahan,
             DATE_FORMAT(l.tgl_kegiatan, '%d %b %Y') AS tanggal,
             DATE_FORMAT(l.tgl_kegiatan, '%Y-%m-%d') AS tglRaw,
             COALESCE(l.waktu, '08:00 - 11:00') AS waktu,
@@ -103,7 +146,13 @@ async function findByUserId(idPengguna, filters = {}) {
             COALESCE(l.nomor_sk, 'Mandiri / Tupoksi') AS nomorSk,
             l.uraian,
             COALESCE(l.target, 'Terlaksana') AS targetOutput,
-            COALESCE(l.hasil, l.target, 'Terlaksana') AS outputShort,
+            CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(l.hasil), l.hasil, '{}'), '$.__logbookRevisionFields')) = '1'
+                 THEN JSON_UNQUOTE(JSON_EXTRACT(l.hasil, '$.hasil'))
+                 ELSE COALESCE(l.hasil, l.target, 'Terlaksana') END AS outputShort,
+            CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(l.hasil), l.hasil, '{}'), '$.__logbookRevisionFields')) = '1'
+                 THEN JSON_UNQUOTE(JSON_EXTRACT(l.hasil, '$.kuantitas')) ELSE NULL END AS kuantitas,
+            CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(l.hasil), l.hasil, '{}'), '$.__logbookRevisionFields')) = '1'
+                 THEN JSON_UNQUOTE(JSON_EXTRACT(l.hasil, '$.satuan')) ELSE NULL END AS satuan,
             l.periode,
             l.status,
             CASE 
@@ -119,6 +168,7 @@ async function findByUserId(idPengguna, filters = {}) {
             b.id_bukti AS berkasId,
             b.jenis_berkas AS berkasJenis,
             b.nama_berkas AS berkasNama,
+            b.keterangan AS keteranganEviden,
             COALESCE(b.ukuran_berkas, '1.5 MB') AS berkasUkuran,
             COALESCE(r.catatan_revisi, r.komentar, v.alasan_pengembalian) AS catatanReviewer,
             r.aspek_revisi AS aspekRevisi,
@@ -129,8 +179,9 @@ async function findByUserId(idPengguna, filters = {}) {
             l.id_peninjau_aktif,
             activeReviewer.nama AS namaPeninjauAktif
         FROM logbook l
+        JOIN pengguna pemilik ON pemilik.id_pengguna = l.id_pengguna
         LEFT JOIN (
-            SELECT id_logbook, id_bukti, nama_berkas, jenis_berkas, ukuran_berkas,
+            SELECT id_logbook, id_bukti, nama_berkas, jenis_berkas, ukuran_berkas, keterangan,
                    ROW_NUMBER() OVER (PARTITION BY id_logbook ORDER BY id_bukti DESC) as rn
             FROM bukti_logbook
         ) b ON b.id_logbook = l.id_logbook AND b.rn = 1
@@ -165,8 +216,16 @@ async function findByUserId(idPengguna, filters = {}) {
     }
 
     if (filters.idPeninjauAktif) {
-        sql += ` AND l.id_peninjau_aktif = ? AND l.status IN ('diajukan', 'direview')`;
-        params.push(Number(filters.idPeninjauAktif));
+        sql += ` AND (
+            (l.id_peninjau_aktif = ? AND l.status IN ('diajukan', 'direview'))
+            OR (l.status = 'divalidasi' AND EXISTS (
+                SELECT 1 FROM validasi_logbook assignedValidation
+                WHERE assignedValidation.id_logbook = l.id_logbook
+                  AND assignedValidation.id_validator = ?
+                  AND assignedValidation.keputusan = 'divalidasi'
+            ))
+        )`;
+        params.push(Number(filters.idPeninjauAktif), Number(filters.idPeninjauAktif));
     }
 
     if (filters.status && filters.status !== "Semua") {
@@ -225,7 +284,7 @@ const reviewerRoleByOwnerRole = {
 
 async function getUserRole(connection, idPengguna) {
     const [[user]] = await connection.execute(
-        `SELECT p.id_pengguna, p.id_atasan, p.id_unit, p.nama,
+        `SELECT p.id_pengguna, p.id_atasan, p.id_unit, p.id_jabatan, p.nama,
                 r.nama_role, p.status_akun
          FROM pengguna p JOIN \`role\` r ON r.id_role = p.id_role
          WHERE p.id_pengguna = ?`,
@@ -237,7 +296,12 @@ async function getUserRole(connection, idPengguna) {
 async function findReviewerForRole(connection, user, roleName) {
     if (user.id_atasan) {
         const directSupervisor = await getUserRole(connection, user.id_atasan);
-        if (directSupervisor?.status_akun === "aktif" && directSupervisor.nama_role === roleName) {
+        // Tendik harus selalu kembali ke Kasi pada unitnya sendiri. Pertahankan
+        // relasi atasan langsung untuk alur Dosen yang dapat lintas unit.
+        const requiresSameUnit = user.nama_role !== "Dosen" && roleName !== "Dekan / Wakil Dekan";
+        const sameUnit = Number(directSupervisor?.id_unit) === Number(user.id_unit);
+        if (directSupervisor?.status_akun === "aktif" && directSupervisor.nama_role === roleName &&
+            (!requiresSameUnit || sameUnit)) {
             return directSupervisor;
         }
     }
@@ -405,23 +469,23 @@ async function resubmitRevision(idLogbook, idPengguna, data = {}) {
         }
 
         let reviewer;
-        if (currentEntry.id_peninjau_aktif) {
-            reviewer = await getUserRole(connection, currentEntry.id_peninjau_aktif);
-            const owner = await getUserRole(connection, idPengguna);
-            if (!reviewer || reviewer.status_akun !== 'aktif' ||
-                reviewerRoleByOwnerRole[owner?.nama_role] !== reviewer.nama_role) {
-                const error = new Error("Atasan yang meminta revisi tidak lagi aktif atau tidak sesuai jabatan. Hubungi administrator.");
-                error.statusCode = 409;
-                throw error;
-            }
-        } else {
-            reviewer = await resolveLogbookReviewer(connection, idPengguna);
-        }
+        // Re-evaluasi penerima dengan resolver yang sama seperti pengajuan awal.
+        // Ini memastikan logbook Tendik selalu kembali ke Kasi aktif pada unit yang sama.
+        reviewer = await resolveLogbookReviewer(connection, idPengguna);
         if (!reviewer) {
             const error = new Error("Atasan yang meminta revisi tidak ditemukan. Hubungi administrator sebelum mengirim ulang.");
             error.statusCode = 409;
             throw error;
         }
+
+        const persistedResult = data.kuantitas !== undefined || data.satuan !== undefined
+            ? JSON.stringify({
+                __logbookRevisionFields: 1,
+                hasil: data.hasil || '',
+                kuantitas: data.kuantitas || '',
+                satuan: data.satuan || '',
+            })
+            : data.hasil || null;
 
         await connection.execute(
             `UPDATE logbook
@@ -437,7 +501,7 @@ async function resubmitRevision(idLogbook, idPengguna, data = {}) {
                 data.nomorSk || null,
                 data.uraian.trim(),
                 data.target || null,
-                data.hasil || null,
+                persistedResult,
                 data.submit === false ? 'perlu_revisi' : 'diajukan',
                 reviewer.id_pengguna,
                 data.submit === false ? 0 : 1,
@@ -446,7 +510,7 @@ async function resubmitRevision(idLogbook, idPengguna, data = {}) {
             ]
         );
 
-        if (evidenceAction === "replace" || evidenceAction === "remove") {
+        if (evidenceAction === "remove") {
             const [oldEvidence] = await connection.execute(
                 "SELECT lokasi_berkas FROM bukti_logbook WHERE id_logbook = ?",
                 [Number(idLogbook)]
@@ -473,8 +537,15 @@ async function resubmitRevision(idLogbook, idPengguna, data = {}) {
                 [
                     Number(idLogbook), `${baseName}${extension}`, data.jenisBerkas,
                     `${(imageBuffer.length / (1024 * 1024)).toFixed(2)} MB`,
-                    `/uploads/logbook/${storedFileName}`, `Bukti revisi: ${data.revisionNote || "Perbaikan logbook"}`
+                    `/uploads/logbook/${storedFileName}`, data.keterangan || `Bukti revisi: ${data.revisionNote || "Perbaikan logbook"}`
                 ]
+            );
+        } else if (evidenceAction === "keep" && data.keterangan !== undefined) {
+            await connection.execute(
+                `UPDATE bukti_logbook SET keterangan = ?
+                 WHERE id_bukti = (SELECT latest.id_bukti FROM
+                     (SELECT id_bukti FROM bukti_logbook WHERE id_logbook = ? ORDER BY id_bukti DESC LIMIT 1) latest)`,
+                [data.keterangan || null, Number(idLogbook)]
             );
         }
 
@@ -724,7 +795,9 @@ async function getDekanAssignedLogbooks(idSupervisor) {
                 COALESCE(l.waktu, '08:00 - 11:00') AS waktu, l.periode,
                 l.kategori, COALESCE(l.judul, l.kategori) AS judul, l.uraian,
                 COALESCE(l.target, 'Terlaksana') AS targetOutput,
-                COALESCE(l.hasil, l.target, 'Terlaksana') AS outputShort,
+                CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(l.hasil), l.hasil, '{}'), '$.__logbookRevisionFields')) = '1'
+                     THEN JSON_UNQUOTE(JSON_EXTRACT(l.hasil, '$.hasil'))
+                     ELSE COALESCE(l.hasil, l.target, 'Terlaksana') END AS outputShort,
                 l.status,
                 CASE WHEN l.status = 'divalidasi' THEN 'sah'
                      WHEN l.status = 'perlu_revisi' THEN 'revisi'
@@ -732,14 +805,14 @@ async function getDekanAssignedLogbooks(idSupervisor) {
                 CASE WHEN l.status = 'divalidasi' THEN 'Tervalidasi'
                      WHEN l.status = 'perlu_revisi' THEN 'Revisi'
                      ELSE 'Menunggu Validasi' END AS statusLabel,
-                b.nama_berkas AS berkasNama
+                b.nama_berkas AS berkasNama, b.jenis_berkas AS berkasJenis
          FROM logbook l
          JOIN pengguna p ON p.id_pengguna = l.id_pengguna
          JOIN \`role\` ownerRole ON ownerRole.id_role = p.id_role
          LEFT JOIN jabatan j ON j.id_jabatan = p.id_jabatan
          LEFT JOIN unit_kerja u ON u.id_unit = p.id_unit
          LEFT JOIN (
-             SELECT id_logbook, nama_berkas,
+             SELECT id_logbook, nama_berkas, jenis_berkas,
                     ROW_NUMBER() OVER (PARTITION BY id_logbook ORDER BY id_bukti DESC) AS rn
              FROM bukti_logbook
          ) b ON b.id_logbook = l.id_logbook AND b.rn = 1
@@ -769,8 +842,15 @@ async function getSubordinateLogbookData(idSupervisor, subordinateId, filters = 
                 EXISTS (
                     SELECT 1 FROM logbook assigned
                     WHERE assigned.id_pengguna = p.id_pengguna
-                      AND assigned.id_peninjau_aktif = ?
-                      AND assigned.status IN ('diajukan', 'direview')
+                      AND (
+                          (assigned.id_peninjau_aktif = ? AND assigned.status IN ('diajukan', 'direview'))
+                          OR (assigned.status = 'divalidasi' AND EXISTS (
+                              SELECT 1 FROM validasi_logbook assignedValidation
+                              WHERE assignedValidation.id_logbook = assigned.id_logbook
+                                AND assignedValidation.id_validator = ?
+                                AND assignedValidation.keputusan = 'divalidasi'
+                          ))
+                      )
                       AND EXISTS (
                           SELECT 1
                           FROM pengguna assignedReviewer
@@ -790,7 +870,7 @@ async function getSubordinateLogbookData(idSupervisor, subordinateId, filters = 
          LEFT JOIN jabatan j ON j.id_jabatan = p.id_jabatan
          LEFT JOIN unit_kerja u ON u.id_unit = p.id_unit
          WHERE p.id_pengguna = ?`,
-        [Number(idSupervisor), Number(idSupervisor), Number(subordinateId)]
+        [Number(idSupervisor), Number(idSupervisor), Number(idSupervisor), Number(subordinateId)]
     );
 
     if (subRows.length === 0) {
@@ -1038,7 +1118,13 @@ async function getLogbookDetail(idLogbook, idSupervisor = null) {
             COALESCE(l.nomor_sk, 'Mandiri / Tupoksi') AS nomorSk,
             l.uraian,
             COALESCE(l.target, 'Terlaksana') AS target,
-            COALESCE(l.hasil, l.target, 'Terlaksana') AS hasil,
+            CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(l.hasil), l.hasil, '{}'), '$.__logbookRevisionFields')) = '1'
+                 THEN JSON_UNQUOTE(JSON_EXTRACT(l.hasil, '$.hasil'))
+                 ELSE COALESCE(l.hasil, l.target, 'Terlaksana') END AS hasil,
+            CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(l.hasil), l.hasil, '{}'), '$.__logbookRevisionFields')) = '1'
+                 THEN JSON_UNQUOTE(JSON_EXTRACT(l.hasil, '$.kuantitas')) ELSE NULL END AS kuantitas,
+            CASE WHEN JSON_UNQUOTE(JSON_EXTRACT(IF(JSON_VALID(l.hasil), l.hasil, '{}'), '$.__logbookRevisionFields')) = '1'
+                 THEN JSON_UNQUOTE(JSON_EXTRACT(l.hasil, '$.satuan')) ELSE NULL END AS satuan,
             l.periode,
             l.status,
             CASE 
@@ -1186,6 +1272,7 @@ module.exports = {
     findByUserId,
     getSummary,
     createLogbook,
+    resolveLogbookReviewer,
     resubmitRevision,
     seedSampleLogbooks,
     getSubordinates,
@@ -1193,5 +1280,6 @@ module.exports = {
     getSubordinateLogbookData,
     reviewAndValidateLogbook,
     getLogbookDetail,
-    getEvidenceFile
+    getEvidenceFile,
+    getEvidenceContentType
 };

@@ -93,7 +93,7 @@ async function submitRevision(req, res) {
     try {
         const idLogbook = Number(req.params.id);
         const { idPengguna, revisionNote, tglKegiatan, waktu, kategori, judul, nomorSk, uraian, target, hasil,
-            evidenceAction, berkasNama, jenisBerkas, berkasDataBase64, submit } = req.body;
+            kuantitas, satuan, keterangan, evidenceAction, berkasNama, jenisBerkas, berkasDataBase64, submit } = req.body;
 
         if (!idLogbook || !idPengguna) {
             return res.status(400).json({ success: false, message: "ID Logbook dan ID Pengguna wajib disertakan." });
@@ -101,7 +101,7 @@ async function submitRevision(req, res) {
 
         const result = await logbookModel.resubmitRevision(idLogbook, idPengguna, {
             revisionNote, tglKegiatan, waktu, kategori, judul, nomorSk, uraian, target, hasil,
-            evidenceAction, berkasNama, jenisBerkas, berkasDataBase64, submit,
+            kuantitas, satuan, keterangan, evidenceAction, berkasNama, jenisBerkas, berkasDataBase64, submit,
         });
 
         return res.json({
@@ -241,7 +241,8 @@ async function getLogbookEvidence(req, res) {
 
         const { evidence, diskPath } = await logbookModel.getEvidenceFile(idLogbook, idBukti, viewerId);
         await fs.access(diskPath);
-        res.set("Content-Type", evidence.jenis_berkas);
+        const contentType = await logbookModel.getEvidenceContentType(diskPath, evidence);
+        res.set("Content-Type", contentType);
         res.set("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(evidence.nama_berkas)}`);
         res.set("Cache-Control", "private, no-store");
         res.set("X-Content-Type-Options", "nosniff");

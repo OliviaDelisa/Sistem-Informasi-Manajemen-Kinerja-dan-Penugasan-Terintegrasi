@@ -294,12 +294,15 @@ async function seedDatabase(connection) {
          LEFT JOIN \`role\` directReviewerRole ON directReviewerRole.id_role = directReviewer.id_role
          SET l.id_peninjau_aktif = COALESCE(
              CASE
-                 WHEN directReviewerRole.nama_role = CASE ownerRole.nama_role
+                 WHEN directReviewer.status_akun = 'aktif'
+                  AND directReviewerRole.nama_role = CASE ownerRole.nama_role
                      WHEN 'Dosen' THEN 'Kasi'
                      WHEN 'Tendik' THEN 'Kasi'
                      WHEN 'Kasi' THEN 'Kepala Kantor'
                      WHEN 'Kepala Kantor' THEN 'Dekan / Wakil Dekan'
-                 END THEN directReviewer.id_pengguna
+                 END
+                  AND (ownerRole.nama_role <> 'Tendik' OR directReviewer.id_unit = owner.id_unit)
+                 THEN directReviewer.id_pengguna
              END,
              (
                  SELECT candidate.id_pengguna
@@ -312,6 +315,7 @@ async function seedDatabase(connection) {
                      WHEN 'Kepala Kantor' THEN 'Dekan / Wakil Dekan'
                  END
                    AND candidate.status_akun = 'aktif'
+                   AND (ownerRole.nama_role <> 'Tendik' OR candidate.id_unit = owner.id_unit)
                  ORDER BY (candidate.id_unit = owner.id_unit) DESC, candidate.id_pengguna ASC
                  LIMIT 1
              )
