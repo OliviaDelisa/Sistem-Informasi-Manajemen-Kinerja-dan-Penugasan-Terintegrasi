@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+import { API_BASE_URL } from './apiConfig'
 
 async function parseResponse(res, fallbackMsg) {
   const data = await res.json().catch(() => ({}));
@@ -9,13 +9,13 @@ async function parseResponse(res, fallbackMsg) {
 }
 
 export async function fetchBawahan(userId) {
-  const res = await fetch(`${API_BASE}/penugasan/bawahan?userId=${encodeURIComponent(userId || "")}`);
+  const res = await fetch(`${API_BASE_URL}/penugasan/bawahan?userId=${encodeURIComponent(userId || "")}`);
   const data = await parseResponse(res, "Gagal memuat daftar bawahan.");
   return data.data || [];
 }
 
 export async function fetchDaftarPenugasan(userId) {
-  const res = await fetch(`${API_BASE}/penugasan?userId=${encodeURIComponent(userId || "")}`);
+  const res = await fetch(`${API_BASE_URL}/penugasan?userId=${encodeURIComponent(userId || "")}`);
   return parseResponse(res, "Gagal memuat daftar penugasan.");
 }
 

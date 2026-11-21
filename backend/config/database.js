@@ -257,6 +257,11 @@ async function migrateLegacySchema(connection) {
     }
 
     if (await tableExists(connection, "logbook")) {
+        if (!(await exists(connection, "logbook", "id_peninjau_aktif"))) {
+            await connection.query(
+                "ALTER TABLE logbook ADD COLUMN id_peninjau_aktif INT UNSIGNED NULL, ADD KEY idx_logbook_peninjau_aktif (id_peninjau_aktif), ADD CONSTRAINT fk_logbook_peninjau_aktif FOREIGN KEY (id_peninjau_aktif) REFERENCES pengguna (id_pengguna)",
+            );
+        }
         if (!(await exists(connection, "logbook", "judul"))) {
             await connection.query("ALTER TABLE logbook ADD COLUMN judul VARCHAR(255) NULL AFTER kategori");
         }
@@ -271,6 +276,18 @@ async function migrateLegacySchema(connection) {
     if (await tableExists(connection, "bukti_logbook")) {
         if (!(await exists(connection, "bukti_logbook", "ukuran_berkas"))) {
             await connection.query("ALTER TABLE bukti_logbook ADD COLUMN ukuran_berkas VARCHAR(50) NULL AFTER jenis_berkas");
+        }
+    }
+
+    if (await tableExists(connection, "review_logbook")) {
+        if (!(await exists(connection, "review_logbook", "aspek_revisi"))) {
+            await connection.query("ALTER TABLE review_logbook ADD COLUMN aspek_revisi TEXT NULL AFTER catatan_revisi");
+        }
+        if (!(await exists(connection, "review_logbook", "tenggat_revisi"))) {
+            await connection.query("ALTER TABLE review_logbook ADD COLUMN tenggat_revisi DATE NULL AFTER aspek_revisi");
+        }
+        if (!(await exists(connection, "review_logbook", "nama_berkas_revisi"))) {
+            await connection.query("ALTER TABLE review_logbook ADD COLUMN nama_berkas_revisi VARCHAR(255) NULL AFTER tenggat_revisi");
         }
     }
 }

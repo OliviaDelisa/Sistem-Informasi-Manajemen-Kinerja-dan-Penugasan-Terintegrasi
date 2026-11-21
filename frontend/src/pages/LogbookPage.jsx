@@ -1,13 +1,78 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { API_BASE_URL } from '../services/apiConfig';
 import { 
   fetchLogbooks, 
   saveLogbook, 
   submitLogbookRevision,
+  saveLogbookRevisionDraft,
   fetchSubordinates,
+  fetchDekanAssignedLogbooks,
   fetchSubordinateLogbooks,
   reviewSubordinateLogbook,
   fetchLogbookDetail
 } from '../services/logbookApi';
+
+const revisionAspectLabels = {
+  eviden: 'Kelengkapan eviden atau dokumen pendukung',
+  kesesuaian: 'Kesesuaian uraian dengan tugas/kegiatan',
+  target: 'Target, output, atau realisasi kegiatan',
+  deskripsi: 'Kejelasan deskripsi dan hasil logbook',
+};
+
+function readRevisionAspects(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getRevisionDeadlineDefault() {
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  return getLocalDateString(date);
+}
+
+function getEvidencePreviewType(file) {
+  const name = (file?.nama_berkas || '').toLowerCase();
+  const mimeType = (file?.jenis_berkas || '').toLowerCase();
+  if (mimeType === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+  if (['image/jpeg', 'image/png'].includes(mimeType) || /\.(png|jpe?g)$/.test(name)) return 'image';
+  return 'other';
+}
+
+function getEvidenceMimeType(file) {
+  const extension = (file?.name || '').split('.').pop()?.toLowerCase();
+  const byExtension = extension === 'png' ? 'image/png'
+    : ['jpg', 'jpeg'].includes(extension) ? 'image/jpeg'
+      : extension === 'pdf' ? 'application/pdf' : '';
+  if (!byExtension) return '';
+  return file.type && file.type !== byExtension ? '' : byExtension;
+}
+
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return window.btoa(binary);
+}
+
+function getLogbookEvidenceUrl(idLogbook, evidenceId, viewerId) {
+  const params = new URLSearchParams({ viewerId: String(viewerId) });
+  return `${API_BASE_URL}/logbook/${encodeURIComponent(idLogbook)}/bukti/${encodeURIComponent(evidenceId)}?${params.toString()}`;
+}
 
 export default function LogbookPage({ user }) {
   const currentUserId = user?.id ?? user?.id_pengguna;
@@ -20,7 +85,7 @@ export default function LogbookPage({ user }) {
   const isSupervisorRole = isKasi || isKepalaKantor || isDekan;
 
   // Active Tab: 'saya' (Logbook Saya) atau 'bawahan' (Logbook Bawahan)
-  const [activeTab, setActiveTab] = useState('saya');
+  const [activeTab, setActiveTab] = useState(isDekan ? 'bawahan' : 'saya');
 
   // ─── DATA STATE LOGBOOK SAYA ────────────────────────────────────────────────
   const [logbooks, setLogbooks] = useState([]);
@@ -36,12 +101,26 @@ export default function LogbookPage({ user }) {
   const [subordinateSummary, setSubordinateSummary] = useState({ disahkan: 0, antrean: 0, revisi: 0, total: 0 });
   const [subordinateLoading, setSubordinateLoading] = useState(false);
   const [subordinateError, setSubordinateError] = useState(null);
+  const [dekanLogbooks, setDekanLogbooks] = useState([]);
+  const [dekanLogbookLoading, setDekanLogbookLoading] = useState(false);
+  const [dekanLogbookError, setDekanLogbookError] = useState(null);
+  const [dekanSearch, setDekanSearch] = useState('');
+  const [dekanStatusFilter, setDekanStatusFilter] = useState('Semua');
+  const [dekanDivisionFilter, setDekanDivisionFilter] = useState('Semua');
+  const [dekanDateFilter, setDekanDateFilter] = useState('');
+  const [dekanPeriodFilter, setDekanPeriodFilter] = useState('');
+  const [dekanOwnerFilter, setDekanOwnerFilter] = useState('Semua');
 
   // Modal Review & Validasi Bawahan
   const [reviewingLogbook, setReviewingLogbook] = useState(null);
   const [reviewDecision, setReviewDecision] = useState('validasi'); // 'validasi' | 'revisi' | 'tolak'
   const [reviewNotes, setReviewNotes] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [isRevisionRequestOpen, setIsRevisionRequestOpen] = useState(false);
+  const [revisionAspects, setRevisionAspects] = useState([]);
+  const [revisionReason, setRevisionReason] = useState('');
+  const [revisionDeadline, setRevisionDeadline] = useState(getRevisionDeadlineDefault);
+  const [revisionAttachmentName, setRevisionAttachmentName] = useState('');
 
   // ─── STATE DETAIL LOGBOOK BAWAHAN (Tampilan Sesuai Gambar) ───────────────────
   const [selectedSubordinateLogbookId, setSelectedSubordinateLogbookId] = useState(null);
@@ -51,6 +130,11 @@ export default function LogbookPage({ user }) {
   const [detailEvaluationNote, setDetailEvaluationNote] = useState('');
   const [isSubmittingDetailReview, setIsSubmittingDetailReview] = useState(false);
   const [selectedPreviewFile, setSelectedPreviewFile] = useState(null);
+  const [previewLoadError, setPreviewLoadError] = useState(false);
+
+  useEffect(() => {
+    setPreviewLoadError(false);
+  }, [selectedPreviewFile]);
 
   // ─── FILTER STATE ───────────────────────────────────────────────────────────
   const [searchTerm, setSearchTerm] = useState('');
@@ -86,10 +170,12 @@ export default function LogbookPage({ user }) {
   // ─── MODAL STATE ────────────────────────────────────────────────────────────
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedLogbookDetail, setSelectedLogbookDetail] = useState(null);
+  const isRevisionDetail = selectedLogbookDetail?.statusKey === 'revisi';
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmittingRevision, setIsSubmittingRevision] = useState(false);
+  const [isSavingRevisionDraft, setIsSavingRevisionDraft] = useState(false);
 
   // ─── FORM STATE (Tambah Logbook) ────────────────────────────────────────────
   const [formTanggal, setFormTanggal] = useState(() => new Date().toISOString().slice(0, 10));
@@ -105,10 +191,53 @@ export default function LogbookPage({ user }) {
   const [evidenFile, setEvidenFile] = useState(null);
   const [evidenTitle, setEvidenTitle] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [evidenPreviewUrl, setEvidenPreviewUrl] = useState('');
+  const [unavailableEvidenceIds, setUnavailableEvidenceIds] = useState({});
+
+  useEffect(() => {
+    if (!evidenFile) {
+      setEvidenPreviewUrl('');
+      return undefined;
+    }
+    const previewUrl = URL.createObjectURL(evidenFile);
+    setEvidenPreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [evidenFile]);
 
   // ─── REVISI FORM STATE ───────────────────────────────────────────────────────
-  const [revisionNoteInput, setRevisionNoteInput] = useState('');
-  const [revisionFileInput, setRevisionFileInput] = useState('');
+  const [revisionDraft, setRevisionDraft] = useState(null);
+  const [revisionEvidenceFile, setRevisionEvidenceFile] = useState(null);
+  const [revisionEvidenceAction, setRevisionEvidenceAction] = useState('keep');
+  const [revisionEvidencePreviewUrl, setRevisionEvidencePreviewUrl] = useState('');
+
+  useEffect(() => {
+    if (!revisionEvidenceFile) {
+      setRevisionEvidencePreviewUrl('');
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(revisionEvidenceFile);
+    setRevisionEvidencePreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [revisionEvidenceFile]);
+
+  useEffect(() => {
+    if (selectedLogbookDetail?.statusKey === 'revisi') {
+      setRevisionDraft({
+        tglKegiatan: selectedLogbookDetail.tglRaw || new Date().toISOString().slice(0, 10),
+        waktu: selectedLogbookDetail.waktu || '08:00 - 11:00',
+        kategori: selectedLogbookDetail.kategori || 'Pengajaran',
+        judul: selectedLogbookDetail.judul || '',
+        nomorSk: selectedLogbookDetail.nomorSk || '',
+        uraian: selectedLogbookDetail.uraian || '',
+        target: selectedLogbookDetail.targetOutput || '',
+        hasil: selectedLogbookDetail.outputShort || '',
+      });
+      setRevisionEvidenceFile(null);
+      setRevisionEvidenceAction('keep');
+    } else {
+      setRevisionDraft(null);
+    }
+  }, [selectedLogbookDetail]);
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────────
   const showToast = (msg) => {
@@ -131,12 +260,15 @@ export default function LogbookPage({ user }) {
       if (res.success) {
         setLogbooks(res.data || []);
         if (res.summary) setSummary(res.summary);
+        return res.data || [];
       } else {
         setApiError(res.message || 'Gagal memuat data logbook.');
+        return [];
       }
     } catch (err) {
       console.error('fetchLogbooks error:', err);
       setApiError('Tidak dapat terhubung ke server backend. Pastikan backend berjalan di port 5000.');
+      return [];
     } finally {
       setLoading(false);
     }
@@ -153,9 +285,9 @@ export default function LogbookPage({ user }) {
       const res = await fetchSubordinates(currentUserId);
       if (res.success && res.data) {
         setSubordinates(res.data);
-        if (res.data.length > 0 && !selectedSubordinateId) {
-          // Tetapkan satu bawahan langsung yang menjadi tanggung jawabnya
-          setSelectedSubordinateId(res.data[0].id_pengguna);
+        if (!res.data.some((item) => Number(item.id_pengguna) === Number(selectedSubordinateId))) {
+          // Utamakan bawahan yang sedang memiliki logbook menunggu pemeriksaan.
+          setSelectedSubordinateId(res.data[0]?.id_pengguna || null);
         }
       }
     } catch (err) {
@@ -163,11 +295,33 @@ export default function LogbookPage({ user }) {
     }
   }, [currentUserId, isSupervisorRole, selectedSubordinateId]);
 
+  const loadDekanLogbooks = useCallback(async () => {
+    if (!currentUserId || !isDekan) return;
+    setDekanLogbookLoading(true);
+    setDekanLogbookError(null);
+    try {
+      const res = await fetchDekanAssignedLogbooks(currentUserId);
+      setDekanLogbooks(res.data || []);
+    } catch (err) {
+      setDekanLogbookError(err.message || 'Gagal memuat logbook dalam kewenangan Dekanat.');
+    } finally {
+      setDekanLogbookLoading(false);
+    }
+  }, [currentUserId, isDekan]);
+
   useEffect(() => {
-    if (isSupervisorRole) {
+    if (isDekan) setActiveTab('bawahan');
+  }, [isDekan]);
+
+  useEffect(() => {
+    if (isSupervisorRole && !isDekan) {
       loadSubordinates();
     }
-  }, [isSupervisorRole, loadSubordinates]);
+  }, [isSupervisorRole, isDekan, loadSubordinates]);
+
+  useEffect(() => {
+    if (isDekan && activeTab === 'bawahan') loadDekanLogbooks();
+  }, [isDekan, activeTab, loadDekanLogbooks]);
 
   const loadSubordinateEntries = useCallback(async () => {
     if (!currentUserId || !selectedSubordinateId) return;
@@ -193,10 +347,10 @@ export default function LogbookPage({ user }) {
   }, [currentUserId, selectedSubordinateId, periode]);
 
   useEffect(() => {
-    if (isSupervisorRole && selectedSubordinateId && activeTab === 'bawahan') {
+    if (isSupervisorRole && !isDekan && selectedSubordinateId && activeTab === 'bawahan') {
       loadSubordinateEntries();
     }
-  }, [isSupervisorRole, selectedSubordinateId, activeTab, loadSubordinateEntries]);
+  }, [isSupervisorRole, isDekan, selectedSubordinateId, activeTab, loadSubordinateEntries]);
 
   // Handler eksekusi review oleh atasan
   const handleReviewSubmit = async (e) => {
@@ -208,7 +362,7 @@ export default function LogbookPage({ user }) {
     }
     setIsSubmittingReview(true);
     try {
-      await reviewSubordinateLogbook(reviewingLogbook.id, {
+      const result = await reviewSubordinateLogbook(reviewingLogbook.id, {
         idSupervisor: currentUserId,
         action: reviewDecision,
         catatanRevisi: reviewNotes,
@@ -216,7 +370,7 @@ export default function LogbookPage({ user }) {
       });
 
       const msg = reviewDecision === 'validasi'
-        ? '✓ Logbook bawahan berhasil divalidasi dan disahkan TTE resmi!'
+        ? result.message
         : reviewDecision === 'revisi'
         ? '✓ Permintaan revisi telah dikirimkan ke bawahan!'
         : '✓ Logbook dikembalikan ke bawahan.';
@@ -224,8 +378,11 @@ export default function LogbookPage({ user }) {
       showToast(msg);
       setReviewingLogbook(null);
       setReviewNotes('');
-      await loadSubordinateEntries();
-      await loadSubordinates();
+      if (isDekan) await loadDekanLogbooks();
+      else {
+        await loadSubordinateEntries();
+        await loadSubordinates();
+      }
     } catch (err) {
       console.error('handleReviewSubmit error:', err);
       alert('Gagal memproses validasi: ' + err.message);
@@ -256,11 +413,13 @@ export default function LogbookPage({ user }) {
   }, [currentUserId]);
 
   const openSubordinateDetail = (idLogbook) => {
+    setSelectedPreviewFile(null);
     setSelectedSubordinateLogbookId(idLogbook);
     loadSubordinateLogbookDetail(idLogbook);
   };
 
   const handleBackToSubordinateList = () => {
+    setSelectedPreviewFile(null);
     setSelectedSubordinateLogbookId(null);
     setSubordinateDetailData(null);
     setDetailError(null);
@@ -268,30 +427,81 @@ export default function LogbookPage({ user }) {
 
   const handleDetailAction = async (action) => {
     if (!subordinateDetailData?.logbook?.id) return;
-    if (action === 'revisi' && !detailEvaluationNote.trim()) {
-      alert('Mohon cantumkan catatan evaluasi / revisi agar bawahan memahami bagian yang harus diperbaiki.');
+    if (action === 'revisi') {
+      setRevisionReason('');
+      setRevisionAspects([]);
+      setRevisionDeadline(getRevisionDeadlineDefault());
+      setRevisionAttachmentName('');
+      setIsRevisionRequestOpen(true);
+      return;
+    }
+    if (action === 'simpan_catatan' && !detailEvaluationNote.trim()) {
+      alert('Silakan tuliskan catatan dan evaluasi pimpinan terlebih dahulu sebelum menyimpan.');
       return;
     }
     setIsSubmittingDetailReview(true);
     try {
-      await reviewSubordinateLogbook(subordinateDetailData.logbook.id, {
+      const result = await reviewSubordinateLogbook(subordinateDetailData.logbook.id, {
         idSupervisor: currentUserId,
         action,
-        catatanRevisi: detailEvaluationNote,
-        komentar: detailEvaluationNote || (action === 'validasi' ? 'Logbook kegiatan telah divalidasi dan disahkan TTE.' : 'Perlu perbaikan berkas.')
+        catatanRevisi: detailEvaluationNote.trim() || undefined,
+        komentar: detailEvaluationNote.trim() || undefined
       });
 
       const msg = action === 'validasi'
-        ? '✓ Logbook bawahan berhasil divalidasi dan disahkan TTE resmi!'
-        : '✓ Permintaan revisi telah dikirimkan ke bawahan!';
+        ? result.message
+        : action === 'simpan_catatan'
+        ? '✓ Catatan dan evaluasi pimpinan berhasil disimpan ke database!'
+        : '✓ Permintaan perbaikan (revisi) telah dikirimkan ke bawahan!';
 
       showToast(msg);
       await loadSubordinateLogbookDetail(subordinateDetailData.logbook.id);
-      await loadSubordinateEntries();
-      await loadSubordinates();
+      if (isDekan) await loadDekanLogbooks();
+      else {
+        await loadSubordinateEntries();
+        await loadSubordinates();
+      }
     } catch (err) {
       console.error('handleDetailAction error:', err);
-      alert('Gagal memproses validasi: ' + err.message);
+      alert('Gagal memproses: ' + err.message);
+    } finally {
+      setIsSubmittingDetailReview(false);
+    }
+  };
+
+  const handleRevisionRequestSubmit = async (event) => {
+    event.preventDefault();
+    if (!revisionAspects.length) {
+      alert('Pilih minimal satu aspek yang perlu diperbaiki.');
+      return;
+    }
+    if (revisionReason.trim().length < 20 || revisionReason.trim().length > 1000) {
+      alert('Uraian catatan revisi wajib diisi antara 20 dan 1000 karakter.');
+      return;
+    }
+    if (!revisionDeadline || revisionDeadline < getLocalDateString()) {
+      alert('Batas waktu revisi harus hari ini atau setelahnya.');
+      return;
+    }
+
+    setIsSubmittingDetailReview(true);
+    try {
+      const result = await reviewSubordinateLogbook(subordinateDetailData.logbook.id, {
+        idSupervisor: currentUserId,
+        action: 'revisi',
+        catatanRevisi: revisionReason.trim(),
+        komentar: revisionReason.trim(),
+        aspekRevisi: revisionAspects,
+        tenggatRevisi: revisionDeadline,
+        namaBerkasRevisi: revisionAttachmentName.trim() || undefined,
+      });
+      setIsRevisionRequestOpen(false);
+      showToast(result.message || 'Permintaan revisi berhasil dikirim kepada pemilik logbook.');
+      await loadSubordinateLogbookDetail(subordinateDetailData.logbook.id);
+      if (isDekan) await loadDekanLogbooks();
+      else await loadSubordinates();
+    } catch (err) {
+      alert('Gagal mengirim permintaan revisi: ' + err.message);
     } finally {
       setIsSubmittingDetailReview(false);
     }
@@ -339,6 +549,30 @@ export default function LogbookPage({ user }) {
     });
   }, [logbooks, searchTerm, selectedCategory, selectedStatusTab]);
 
+  const dekanDivisions = useMemo(() => [...new Map(
+    dekanLogbooks.map((item) => [String(item.idDivisi), { id: item.idDivisi, name: item.divisi }]),
+  ).values()], [dekanLogbooks]);
+  const dekanOwners = useMemo(() => [...new Map(
+    dekanLogbooks.map((item) => [String(item.idPemilik), { id: item.idPemilik, name: item.namaBawahan }]),
+  ).values()], [dekanLogbooks]);
+  const filteredDekanLogbooks = useMemo(() => {
+    const search = dekanSearch.trim().toLocaleLowerCase('id');
+    return dekanLogbooks.filter((item) => {
+      const matchesSearch = !search ||
+        `${item.namaBawahan} ${item.judul} ${item.uraian || ''}`.toLocaleLowerCase('id').includes(search);
+      const matchesStatus = dekanStatusFilter === 'Semua' ||
+        (dekanStatusFilter === 'Menunggu Validasi' && item.statusKey === 'review') ||
+        (dekanStatusFilter === 'Revisi' && item.statusKey === 'revisi') ||
+        (dekanStatusFilter === 'Tervalidasi' && item.statusKey === 'sah');
+      const matchesDivision = dekanDivisionFilter === 'Semua' || String(item.idDivisi) === dekanDivisionFilter;
+      const matchesOwner = dekanOwnerFilter === 'Semua' || String(item.idPemilik) === dekanOwnerFilter;
+      const matchesDate = !dekanDateFilter || item.tglRaw === dekanDateFilter;
+      const matchesPeriod = !dekanPeriodFilter || (item.tglRaw || '').slice(0, 7) === dekanPeriodFilter;
+      return matchesSearch && matchesStatus && matchesDivision && matchesOwner && matchesDate && matchesPeriod;
+    });
+  }, [dekanLogbooks, dekanSearch, dekanStatusFilter, dekanDivisionFilter, dekanOwnerFilter, dekanDateFilter, dekanPeriodFilter]);
+  const displayedSubordinateLogbooks = isDekan ? filteredDekanLogbooks : subordinateLogbooks;
+
   // Reset pagination ke halaman 1 ketika pencarian atau filter berubah
   useEffect(() => {
     setCurrentPage(1);
@@ -357,6 +591,25 @@ export default function LogbookPage({ user }) {
   const reviewCount = summary.review ?? logbooks.filter((l) => l.statusKey === 'review').length;
   const revisiCount = summary.revisi ?? logbooks.filter((l) => l.statusKey === 'revisi').length;
 
+  const handleSelectEvidenceFile = (file) => {
+    if (!file) return;
+    const evidenceMime = getEvidenceMimeType(file);
+    if (!evidenceMime) {
+      setEvidenFile(null);
+      setEvidenTitle('');
+      alert('Bukti kegiatan harus berupa JPG, JPEG, PNG, atau PDF.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setEvidenFile(null);
+      setEvidenTitle('');
+      alert('Ukuran berkas maksimal 5 MB.');
+      return;
+    }
+    setEvidenFile(file);
+    setEvidenTitle(file.name.replace(/\.[^/.]+$/, ''));
+  };
+
   // ─── HANDLER: SIMPAN LOGBOOK BARU KE DB ──────────────────────────────────────
   const handleCreateLogbook = async (e) => {
     e.preventDefault();
@@ -364,13 +617,14 @@ export default function LogbookPage({ user }) {
       alert('Judul butir tugas dan uraian kegiatan wajib diisi.');
       return;
     }
+    if (!evidenFile) {
+      alert('Unggah bukti kegiatan berupa JPG, JPEG, PNG, atau PDF sebelum menyimpan logbook.');
+      return;
+    }
     setIsSaving(true);
     try {
-      const finalBerkasNama = evidenTitle
-        ? (evidenTitle.endsWith('.pdf') || evidenTitle.endsWith('.docx') || evidenTitle.endsWith('.xlsx') || evidenTitle.endsWith('.jpg')
-          ? evidenTitle
-          : `${evidenTitle}.pdf`)
-        : (evidenFile?.name || 'Eviden_Kegiatan.pdf');
+      const imageMime = getEvidenceMimeType(evidenFile);
+      const berkasDataBase64 = await fileToBase64(evidenFile);
 
       const payload = {
         idPengguna: user.id,
@@ -381,12 +635,14 @@ export default function LogbookPage({ user }) {
         nomorSk: formNomorSk || 'Mandiri / Tupoksi',
         uraian: formUraian,
         target: formTarget || 'Terlaksana',
-        berkasNama: finalBerkasNama,
-        berkasUkuran: evidenFile?.size ? `${(evidenFile.size / (1024 * 1024)).toFixed(1)} MB` : '1.0 MB',
-        keteranganEviden: evidenTitle || finalBerkasNama,
+        berkasNama: evidenFile.name,
+        berkasUkuran: `${(evidenFile.size / (1024 * 1024)).toFixed(2)} MB`,
+        jenisBerkas: imageMime,
+        berkasDataBase64,
+        keteranganEviden: evidenTitle || evidenFile.name,
       };
 
-      await saveLogbook(payload);
+      const result = await saveLogbook(payload);
 
       setIsAddModalOpen(false);
       setFormJudul('');
@@ -395,8 +651,9 @@ export default function LogbookPage({ user }) {
       setFormTarget('');
       setEvidenFile(null);
       setEvidenTitle('');
+      setEvidenPreviewUrl('');
 
-      showToast('✓ Logbook kegiatan berhasil disimpan ke database dan masuk antrean review!');
+      showToast(result.message || 'Logbook berhasil dikirim untuk pemeriksaan berjenjang.');
       setPeriode('Semua Periode');
       setSelectedCategory('Semua');
       setSelectedStatusTab('Semua');
@@ -411,20 +668,54 @@ export default function LogbookPage({ user }) {
   };
 
   // ─── HANDLER: KIRIM ULANG REVISI KE DB ───────────────────────────────────────
+  const buildRevisionPayload = async () => ({
+    idPengguna: currentUserId,
+    evidenceAction: revisionEvidenceAction,
+    berkasNama: revisionEvidenceFile?.name,
+    jenisBerkas: revisionEvidenceFile ? getEvidenceMimeType(revisionEvidenceFile) : undefined,
+    berkasDataBase64: revisionEvidenceFile ? await fileToBase64(revisionEvidenceFile) : undefined,
+    ...revisionDraft,
+  });
+
+  const handleSaveRevisionDraft = async () => {
+    if (!selectedLogbookDetail) return;
+    if (['add', 'replace'].includes(revisionEvidenceAction) && !revisionEvidenceFile) {
+      alert('Pilih berkas bukti JPG, JPEG, PNG, atau PDF terlebih dahulu.');
+      return;
+    }
+    setIsSavingRevisionDraft(true);
+    try {
+      await saveLogbookRevisionDraft(selectedLogbookDetail.id, await buildRevisionPayload());
+      const updatedRows = await loadLogbooks();
+      const updatedEntry = updatedRows.find((row) => Number(row.id) === Number(selectedLogbookDetail.id));
+      if (updatedEntry) setSelectedLogbookDetail(updatedEntry);
+      setRevisionEvidenceFile(null);
+      setRevisionEvidenceAction('keep');
+      showToast('Perubahan berhasil disimpan. Status logbook tetap Revisi.');
+    } catch (err) {
+      console.error('saveRevisionDraft error:', err);
+      alert('Gagal menyimpan perubahan: ' + err.message);
+    } finally {
+      setIsSavingRevisionDraft(false);
+    }
+  };
+
   const handleResubmitRevision = async (e) => {
     e.preventDefault();
     if (!selectedLogbookDetail) return;
+    if (['add', 'replace'].includes(revisionEvidenceAction) && !revisionEvidenceFile) {
+      alert('Pilih berkas bukti JPG, JPEG, PNG, atau PDF terlebih dahulu.');
+      return;
+    }
     setIsSubmittingRevision(true);
     try {
-      await submitLogbookRevision(selectedLogbookDetail.id, {
-        idPengguna: user.id,
-        revisionNote: revisionNoteInput || 'Eviden telah diperbarui sesuai arahan reviewer.',
-        newFileName: revisionFileInput || selectedLogbookDetail.berkasNama,
-      });
+      await submitLogbookRevision(selectedLogbookDetail.id, await buildRevisionPayload());
 
+      setSelectedStatusTab('Semua');
       setSelectedLogbookDetail(null);
-      setRevisionNoteInput('');
-      setRevisionFileInput('');
+      setRevisionDraft(null);
+      setRevisionEvidenceFile(null);
+      setRevisionEvidenceAction('keep');
 
       showToast('✓ Revisi logbook berhasil dikirim ulang ke peninjau!');
       await loadLogbooks(); // Reload data dari DB
@@ -454,11 +745,13 @@ export default function LogbookPage({ user }) {
       ? 'Pencatatan tugas pokok, fungsi harian, dan kepanitiaan operasional fakultas untuk pemenuhan Sasaran Kinerja Pegawai (SKP).'
       : 'Pencatatan tugas pokok operasional harian dan kepanitiaan untuk pemenuhan Sasaran Kinerja Pegawai (SKP).';
 
-  const validatorText = isDosen
-    ? 'Divalidasi oleh Dekan / Wadek (Sah)'
-    : isTendik
-      ? 'Divalidasi oleh Kasi / Kepala Kantor (Sah)'
-      : 'Divalidasi oleh atasan langsung (Sah)';
+  const validatorText = isDosen || isTendik
+    ? 'Divalidasi oleh Kasi'
+    : isKasi
+      ? 'Divalidasi oleh Kepala Kantor'
+      : isKepalaKantor
+        ? 'Divalidasi oleh Dekan / Wakil Dekan'
+        : 'Divalidasi oleh atasan yang berwenang';
 
   // Proteksi jika sesi login tidak valid
   if (!currentUserId) {
@@ -476,7 +769,7 @@ export default function LogbookPage({ user }) {
   }
 
   return (
-    <div className="flex-1 bg-[#F8FAFC] min-h-screen p-6 sm:p-8">
+    <div className={`flex-1 bg-[#F8FAFC] min-h-screen p-6 sm:p-8 ${isRevisionDetail ? 'revision-page [&>*:not(.revision-detail)]:hidden' : ''}`}>
       {/* Toast Alert */}
       {toastMessage && (
         <div className="fixed top-6 right-6 z-50 bg-[#0F5132] text-white px-5 py-3 rounded-xl shadow-lg flex items-center gap-3 text-sm font-semibold animate-fade-in border border-emerald-400">
@@ -488,7 +781,7 @@ export default function LogbookPage({ user }) {
       {/* Tab Switcher: Tab 1. Logbook Saya | Tab 2. Logbook Bawahan (Khusus Kasi / Kepala Kantor / Dekan) */}
       {isSupervisorRole && (
         <div className="flex items-center gap-2 mb-6 bg-white p-1.5 rounded-2xl border border-gray-200 shadow-2xs w-fit">
-          <button
+          {!isDekan && <button
             type="button"
             onClick={() => setActiveTab('saya')}
             className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
@@ -506,7 +799,7 @@ export default function LogbookPage({ user }) {
                 {summary.revisi} Revisi
               </span>
             )}
-          </button>
+          </button>}
 
           <button
             type="button"
@@ -518,12 +811,12 @@ export default function LogbookPage({ user }) {
             }`}
           >
             <span className="text-base">🛡️</span>
-            <span>2. Logbook Bawahan</span>
-            {subordinateSummary.antrean > 0 && (
+            <span>{isDekan ? 'Logbook Bawahan' : '2. Logbook Bawahan'}</span>
+            {(isDekan ? dekanLogbooks.filter((item) => item.statusKey === 'review').length : subordinateSummary.antrean) > 0 && (
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                 activeTab === 'bawahan' ? 'bg-amber-400 text-gray-900' : 'bg-amber-100 text-amber-800'
               }`}>
-                {subordinateSummary.antrean} Antrean
+                {isDekan ? dekanLogbooks.filter((item) => item.statusKey === 'review').length : subordinateSummary.antrean} Antrean
               </span>
             )}
           </button>
@@ -578,6 +871,9 @@ export default function LogbookPage({ user }) {
                   }`}>
                     {subordinateDetailData.logbook.statusLabel}
                   </span>
+                  {subordinateDetailData.logbook.statusKey === 'sah' && (
+                    <span className="px-3 py-1 border-2 border-emerald-700 rounded-md text-emerald-800 font-black tracking-[0.15em] rotate-[-2deg]">TERVALIDASI</span>
+                  )}
                 </div>
               )}
             </div>
@@ -626,6 +922,10 @@ export default function LogbookPage({ user }) {
                         <span>•</span>
                         <span>{subordinateDetailData.logbook.nama_unit}</span>
                       </div>
+                      <div className="text-[11px] text-gray-500 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                        {subordinateDetailData.logbook.email_pegawai && <span>{subordinateDetailData.logbook.email_pegawai}</span>}
+                        {subordinateDetailData.logbook.nidn && <span>NIDN: {subordinateDetailData.logbook.nidn}</span>}
+                      </div>
                     </div>
                   </div>
 
@@ -641,17 +941,29 @@ export default function LogbookPage({ user }) {
                         📜 <span className="text-gray-800">{subordinateDetailData.logbook.nomorSk}</span>
                       </div>
                     )}
+                    <div className="bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 font-medium">
+                      Kategori: <strong className="text-gray-800">{subordinateDetailData.logbook.kategori || '—'}</strong>
+                    </div>
+                    {subordinateDetailData.logbook.periode && (
+                      <div className="bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 font-medium">
+                        Periode: <strong className="text-gray-800">{subordinateDetailData.logbook.periode}</strong>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* SECTION: URAIAN TUGAS POKOK & INISIATIF (Persis Gambar 1) */}
-                <div>
-                  <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase">
-                    URAIAN TUGAS POKOK &amp; INISIATIF
-                  </div>
-                  <h2 className="text-base sm:text-lg font-bold text-[#0B1C30] mt-1.5 leading-snug">
-                    {subordinateDetailData.logbook.uraian || subordinateDetailData.logbook.judul}
+                {/* Rincian kegiatan logbook */}
+                <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                  <div className="text-[11px] font-extrabold tracking-wider text-gray-400 uppercase">INFORMASI KEGIATAN</div>
+                  <h2 className="text-lg sm:text-xl font-bold text-[#0B1C30] mt-1.5 leading-snug">
+                    {subordinateDetailData.logbook.judul || 'Kegiatan Logbook'}
                   </h2>
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="text-[11px] font-bold tracking-wider text-gray-400 uppercase mb-1">Deskripsi Tugas</div>
+                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                      {subordinateDetailData.logbook.uraian || 'Tidak ada deskripsi tugas.'}
+                    </p>
+                  </div>
                 </div>
 
                 {/* SECTION: TWO SIDE-BY-SIDE BOXES (Target Kinerja vs Realisasi & Ketercapaian) */}
@@ -718,20 +1030,22 @@ export default function LogbookPage({ user }) {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {subordinateDetailData.bukti && subordinateDetailData.bukti.length > 0 ? (
                       subordinateDetailData.bukti.map((file) => {
-                        const isPdf = (file.nama_berkas || '').toLowerCase().endsWith('.pdf');
+                        const previewType = getEvidencePreviewType(file);
+                        const isImage = previewType === 'image';
+                        const isPdf = previewType === 'pdf';
+                        const evidenceUrl = getLogbookEvidenceUrl(subordinateDetailData.logbook.id, file.id_bukti, currentUserId);
+                        const isUnavailable = Boolean(unavailableEvidenceIds[file.id_bukti]) || (!isImage && !isPdf);
                         return (
                           <div
                             key={file.id_bukti}
                             className="bg-[#F8FAFC] border border-gray-200 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-2xs hover:border-gray-300 transition-all"
                           >
                             <div className="flex items-center gap-3 min-w-0">
-                              {isPdf ? (
-                                <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 border border-red-200 flex flex-col items-center justify-center font-black text-[10px] shrink-0 leading-none">
-                                  <span>PDF</span>
-                                </div>
+                              {isImage && !unavailableEvidenceIds[file.id_bukti] ? (
+                                <img src={evidenceUrl} alt={`Bukti kegiatan ${file.nama_berkas}`} onError={() => setUnavailableEvidenceIds((current) => ({ ...current, [file.id_bukti]: true }))} className="w-20 h-16 object-cover rounded-lg border border-gray-200 bg-white shrink-0" />
                               ) : (
-                                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center font-bold text-base shrink-0">
-                                  📊
+                                <div className={`w-10 h-10 rounded-xl border flex items-center justify-center font-bold text-xs shrink-0 ${isUnavailable ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                  {isUnavailable ? '!' : isPdf ? 'PDF' : 'IMG'}
                                 </div>
                               )}
                               <div className="min-w-0">
@@ -739,9 +1053,9 @@ export default function LogbookPage({ user }) {
                                   {file.nama_berkas}
                                 </div>
                                 <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5">
-                                  <span>{file.ukuran_berkas || '1.8 MB'}</span>
+                                  <span>{file.ukuran_berkas || 'Ukuran tidak tersedia'}</span>
                                   <span>•</span>
-                                  <span className="truncate">{file.keterangan || 'SHA-256 Verified'}</span>
+                                  <span className="truncate">{isUnavailable ? 'Bukti kegiatan belum tersedia.' : (file.keterangan || (isPdf ? 'Dokumen PDF tersimpan' : 'Bukti gambar tersimpan'))}</span>
                                 </div>
                               </div>
                             </div>
@@ -755,7 +1069,7 @@ export default function LogbookPage({ user }) {
                                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                 <circle cx="12" cy="12" r="3" />
                               </svg>
-                              <span>Pratinjau</span>
+                              <span>Pratinjau Bukti</span>
                             </button>
                           </div>
                         );
@@ -768,59 +1082,60 @@ export default function LogbookPage({ user }) {
                   </div>
                 </div>
 
-                {/* SECTION: CATATAN & EVALUASI PIMPINAN */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-md bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold">
-                        💬
-                      </div>
-                      <span className="text-xs sm:text-sm font-bold text-[#0B1C30]">
-                        Catatan &amp; Evaluasi Pimpinan ({subordinateDetailData.logbook.jabatan_atasan || 'Dekan / Wadek'})
-                      </span>
-                    </div>
-                    <span className="text-[11px] font-medium text-gray-400">
-                      Terekam dalam Metadata Pengesahan
-                    </span>
-                  </div>
-
-                  <div className="bg-[#F1F5F9] border border-gray-200 rounded-2xl p-4 text-xs sm:text-sm text-gray-700 leading-relaxed shadow-2xs">
-                    {subordinateDetailData.logbook.statusKey === 'review' ? (
-                      <div>
-                        <textarea
-                          rows={3}
-                          value={detailEvaluationNote}
-                          onChange={(e) => setDetailEvaluationNote(e.target.value)}
-                          placeholder="Ketik catatan evaluasi pimpinan atau rekomendasi perbaikan sebelum validasi TTE..."
-                          className="w-full bg-transparent border-0 focus:ring-0 text-xs sm:text-sm text-gray-800 placeholder-gray-400 resize-none outline-none leading-relaxed p-0"
-                        />
-                        <div className="text-[10px] text-gray-400 mt-2 flex justify-between items-center border-t border-gray-200/60 pt-2">
-                          <span>Catatan ini otomatis disimpan ke dalam riwayat peninjauan dan sertifikat TTE digital.</span>
-                          <span>{detailEvaluationNote.length} karakter</span>
+                {selectedPreviewFile && (() => {
+                  const previewType = getEvidencePreviewType(selectedPreviewFile);
+                  const previewUrl = getLogbookEvidenceUrl(subordinateDetailData.logbook.id, selectedPreviewFile.id_bukti, currentUserId);
+                  return (
+                    <section className="rounded-2xl border border-blue-200 bg-blue-50/60 overflow-hidden" aria-label="Pratinjau bukti kegiatan">
+                      <div className="px-4 sm:px-5 py-3 bg-white border-b border-blue-100 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-bold text-slate-900">Pratinjau Bukti Kegiatan</h3>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">{selectedPreviewFile.nama_berkas}</p>
                         </div>
+                        <button type="button" onClick={() => setSelectedPreviewFile(null)} className="shrink-0 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50">Tutup Pratinjau</button>
                       </div>
-                    ) : (
-                      <div>
-                        <p className="text-xs sm:text-sm text-gray-800 leading-relaxed font-normal">
-                          {detailEvaluationNote || subordinateDetailData.catatanPimpinan || 'Belum ada catatan evaluasi dari pimpinan.'}
-                        </p>
-                        {subordinateDetailData.latestReview && (
-                          <div className="text-[11px] text-gray-500 mt-2.5 font-medium border-t border-gray-200/60 pt-2 flex items-center justify-between">
-                            <span>Terekam oleh: <strong>{subordinateDetailData.latestReview.peninjau_nama || subordinateDetailData.logbook.nama_atasan}</strong> ({subordinateDetailData.latestReview.peninjau_jabatan || subordinateDetailData.logbook.jabatan_atasan})</span>
-                            <span>{subordinateDetailData.latestReview.waktu_review}</span>
+                      <div className="min-h-64 p-3 sm:p-5 flex items-center justify-center bg-slate-100">
+                        {previewType === 'image' && !previewLoadError ? (
+                          <img
+                            src={previewUrl}
+                            alt={`Bukti kegiatan ${selectedPreviewFile.nama_berkas}`}
+                            onError={() => { setPreviewLoadError(true); setUnavailableEvidenceIds((current) => ({ ...current, [selectedPreviewFile.id_bukti]: true })); }}
+                            className="block max-w-full max-h-[75vh] object-contain rounded-xl bg-white shadow-md"
+                          />
+                        ) : previewType === 'pdf' && !previewLoadError ? (
+                          <iframe src={previewUrl} title={`Pratinjau ${selectedPreviewFile.nama_berkas}`} onError={() => { setPreviewLoadError(true); setUnavailableEvidenceIds((current) => ({ ...current, [selectedPreviewFile.id_bukti]: true })); }} className="w-full h-[75vh] min-h-[600px] bg-white rounded-xl border border-gray-200" />
+                        ) : previewLoadError ? (
+                          <div className="max-w-md text-center bg-white rounded-xl border border-amber-200 p-6">
+                            <p className="font-semibold text-gray-800">Bukti kegiatan belum tersedia di penyimpanan backend.</p>
+                            <p className="text-xs text-gray-500 mt-2">Pemilik logbook perlu mengunggah ulang gambar JPG, JPEG, PNG, atau PDF.</p>
+                          </div>
+                        ) : (
+                          <div className="max-w-md text-center bg-white rounded-xl border border-gray-200 p-6">
+                            <p className="font-semibold text-gray-800">Pratinjau langsung tidak tersedia untuk format ini.</p>
+                            {previewUrl && <a href={previewUrl} target="_blank" rel="noreferrer" className="inline-flex mt-3 text-xs font-bold text-blue-700 underline">Buka berkas di tab baru</a>}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                </div>
+                    </section>
+                  );
+                })()}
 
                 {/* SECTION: ACTION BUTTONS (Minta Perbaikan / Revisi & Validasi dengan TTE Digital) */}
+                {!subordinateDetailData.logbook.canReview && subordinateDetailData.logbook.status === 'perlu_revisi' && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                    Permintaan revisi telah dikirim. Logbook menunggu perbaikan dari pemiliknya.
+                  </p>
+                )}
+                {!subordinateDetailData.logbook.canReview && subordinateDetailData.logbook.status !== 'perlu_revisi' && subordinateDetailData.logbook.nama_peninjau_aktif && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                    Logbook sedang menunggu pemeriksaan dari {subordinateDetailData.logbook.nama_peninjau_aktif}.
+                  </p>
+                )}
                 <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-gray-100">
                   <button
                     type="button"
                     onClick={() => handleDetailAction('revisi')}
-                    disabled={isSubmittingDetailReview}
+                    disabled={isSubmittingDetailReview || !subordinateDetailData.logbook.canReview}
                     className="px-5 py-2.5 rounded-xl border border-indigo-200 bg-[#EEF2FF] hover:bg-[#E0E7FF] text-[#3730A3] font-bold text-xs sm:text-sm flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -833,14 +1148,14 @@ export default function LogbookPage({ user }) {
                   <button
                     type="button"
                     onClick={() => handleDetailAction('validasi')}
-                    disabled={isSubmittingDetailReview}
+                    disabled={isSubmittingDetailReview || !subordinateDetailData.logbook.canReview}
                     className="px-6 py-2.5 rounded-xl bg-[#0F5132] hover:bg-[#14532D] text-white font-bold text-xs sm:text-sm shadow-sm flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                       <path d="m9 12 2 2 4-4" />
                     </svg>
-                    <span>Validasi dengan TTE Digital</span>
+                    <span>{isDekan ? 'Sahkan Logbook' : 'Validasi Logbook'}</span>
                   </button>
                 </div>
 
@@ -897,20 +1212,54 @@ export default function LogbookPage({ user }) {
             {/* Bar Antrean Otorisasi & Periode */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-3">
-                <h2 className="text-base font-bold text-[#0B1C30]">Antrean Otorisasi</h2>
+                <h2 className="text-base font-bold text-[#0B1C30]">{isDekan ? 'Logbook dalam Kewenangan Validasi' : 'Antrean Otorisasi'}</h2>
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#E0E7FF] text-[#3730A3] border border-[#C7D2FE]">
-                  {subordinateSummary.antrean || 0} Berkas
+                  {isDekan ? filteredDekanLogbooks.length : (subordinateSummary.antrean || 0)} Berkas
                 </span>
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-semibold text-gray-500">
-                  Periode: <strong>{periode}</strong>
-                </span>
-              </div>
+              {!isDekan && <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold text-gray-500">Periode: <strong>{periode}</strong></span>
+              </div>}
             </div>
 
+            {isDekan && (
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                <input
+                  type="search"
+                  value={dekanSearch}
+                  onChange={(event) => setDekanSearch(event.target.value)}
+                  placeholder="Cari nama bawahan atau nama tugas/kegiatan"
+                  aria-label="Cari logbook berdasarkan nama bawahan atau tugas"
+                  className="sm:col-span-2 xl:col-span-3 w-full px-3 py-2.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#0F5132]"
+                />
+                <select value={dekanStatusFilter} onChange={(event) => setDekanStatusFilter(event.target.value)} aria-label="Filter status logbook" className="px-3 py-2.5 border border-gray-200 rounded-xl text-xs bg-white">
+                  {['Semua', 'Menunggu Validasi', 'Revisi', 'Tervalidasi'].map((status) => <option key={status}>{status}</option>)}
+                </select>
+                <select value={dekanDivisionFilter} onChange={(event) => setDekanDivisionFilter(event.target.value)} aria-label="Filter divisi" className="px-3 py-2.5 border border-gray-200 rounded-xl text-xs bg-white">
+                  <option value="Semua">Semua Divisi</option>
+                  {dekanDivisions.map((division) => <option key={division.id} value={String(division.id)}>{division.name}</option>)}
+                </select>
+                <select value={dekanOwnerFilter} onChange={(event) => setDekanOwnerFilter(event.target.value)} aria-label="Filter nama bawahan" className="px-3 py-2.5 border border-gray-200 rounded-xl text-xs bg-white">
+                  <option value="Semua">Semua Nama Bawahan</option>
+                  {dekanOwners.map((owner) => <option key={owner.id} value={String(owner.id)}>{owner.name}</option>)}
+                </select>
+                <label className="flex items-center gap-2 text-[11px] text-gray-500">
+                  Tanggal
+                  <input type="date" value={dekanDateFilter} onChange={(event) => setDekanDateFilter(event.target.value)} className="min-w-0 flex-1 px-2.5 py-2 border border-gray-200 rounded-xl text-xs text-gray-700" />
+                </label>
+                <label className="flex items-center gap-2 text-[11px] text-gray-500">
+                  Periode
+                  <input type="month" value={dekanPeriodFilter} onChange={(event) => setDekanPeriodFilter(event.target.value)} className="min-w-0 flex-1 px-2.5 py-2 border border-gray-200 rounded-xl text-xs text-gray-700" />
+                </label>
+                <button type="button" onClick={() => { setDekanSearch(''); setDekanStatusFilter('Semua'); setDekanDivisionFilter('Semua'); setDekanOwnerFilter('Semua'); setDekanDateFilter(''); setDekanPeriodFilter(''); }} className="px-3 py-2 rounded-xl text-xs font-semibold text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200">
+                  Hapus Filter
+                </button>
+              </div>
+            )}
+
             {/* Pemilih / Info Bawahan Tanggung Jawab Langsung (Terikat Relasi Database) */}
+            {!isDekan && (
             <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div className="flex items-center gap-3.5">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#0F5132] flex items-center justify-center text-lg font-bold shrink-0 border border-emerald-100">
@@ -929,7 +1278,7 @@ export default function LogbookPage({ user }) {
                 </div>
               </div>
 
-              {subordinates.length > 1 && (
+              {!isDekan && subordinates.length > 1 && (
                 <div className="flex items-center gap-2">
                   <label className="text-xs font-semibold text-gray-500 shrink-0">Pilih Bawahan:</label>
                   <select
@@ -946,28 +1295,33 @@ export default function LogbookPage({ user }) {
                 </div>
               )}
             </div>
+            )}
 
             {/* Daftar Kartu Logbook Bawahan (Sesuai Desain Gambar User) */}
-            {subordinateLoading ? (
+            {(isDekan ? dekanLogbookLoading : subordinateLoading) ? (
               <div className="space-y-4">
                 {[1, 2].map((i) => (
                   <div key={i} className="bg-white rounded-2xl p-6 border border-gray-200 animate-pulse h-36" />
                 ))}
               </div>
-            ) : subordinateError ? (
+            ) : (isDekan ? dekanLogbookError : subordinateError) ? (
               <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
-                {subordinateError}
+                {isDekan ? dekanLogbookError : subordinateError}
               </div>
-            ) : subordinateLogbooks.length === 0 ? (
+            ) : displayedSubordinateLogbooks.length === 0 ? (
               <div className="bg-white rounded-2xl p-10 border border-gray-200 text-center">
                 <span className="text-3xl">📋</span>
-                <p className="text-sm font-bold text-gray-700 mt-2">Tidak ada berkas logbook untuk bawahan ini</p>
-                <p className="text-xs text-gray-400 mt-0.5">Bawahan belum mengajukan logbook atau tidak ada data yang cocok dengan periode.</p>
+                <p className="text-sm font-bold text-gray-700 mt-2">{isDekan ? 'Tidak ada logbook yang cocok dengan pencarian atau filter' : 'Tidak ada berkas logbook untuk bawahan ini'}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{isDekan ? 'Coba ubah kombinasi filter atau kata kunci.' : 'Bawahan belum mengajukan logbook atau tidak ada data yang cocok dengan periode.'}</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {subordinateLogbooks.map((item) => {
-                  const nameForInitials = subordinateProfile?.name || subordinates.find(s => s.id_pengguna === selectedSubordinateId)?.nama || 'Bawahan';
+                {displayedSubordinateLogbooks.map((item) => {
+                  const selectedSubordinate = subordinates.find(s => Number(s.id_pengguna) === Number(selectedSubordinateId));
+                  const nameForInitials = isDekan
+                    ? item.namaBawahan
+                    : (subordinateProfile?.name || selectedSubordinate?.nama || 'Bawahan');
+                  const positionForCard = isDekan ? item.jabatanBawahan : (subordinateProfile?.position || selectedSubordinate?.nama_jabatan);
                   const initials = nameForInitials
                     .split(' ')
                     .filter(Boolean)
@@ -992,14 +1346,14 @@ export default function LogbookPage({ user }) {
                               {nameForInitials}
                             </div>
                             <div className="text-xs text-gray-500 mt-0.5 font-medium">
-                              {subordinateProfile?.position || subordinates.find(s => s.id_pengguna === selectedSubordinateId)?.nama_jabatan}
+                              {positionForCard}{isDekan ? ` • ${item.divisi}` : ''}
                             </div>
                           </div>
                         </div>
 
                         <div className="shrink-0">
                           <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-black bg-[#DCFCE7] text-[#166534] border border-[#BBF7D0]">
-                            {subordinateProfile?.realisasiPersen || 98}% Realisasi
+                            {isDekan ? item.statusLabel : `${subordinateProfile?.realisasiPersen || 98}% Realisasi`}
                           </span>
                         </div>
                       </div>
@@ -1020,7 +1374,7 @@ export default function LogbookPage({ user }) {
                       </div>
 
                       {/* Baris 3: Horizontal Progress Bar Hijau */}
-                      <div className="my-3">
+                      {!isDekan && <div className="my-3">
                         <div className="flex items-center justify-between text-[11px] font-semibold text-gray-500 mb-1">
                           <span>Beban Kerja &amp; Kelengkapan Eviden</span>
                           <span className="text-[#0F5132] font-bold">Lengkap</span>
@@ -1028,7 +1382,7 @@ export default function LogbookPage({ user }) {
                         <div className="w-full h-2.5 bg-[#DCFCE7] rounded-full overflow-hidden">
                           <div className="h-full bg-[#0F5132] rounded-full w-full transition-all duration-500" />
                         </div>
-                      </div>
+                      </div>}
 
                       {/* Baris 4: Footer Kartu (Diterima, Lampiran, Status, Tombol Aksi) */}
                       <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
@@ -1047,7 +1401,7 @@ export default function LogbookPage({ user }) {
                             <>
                               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-[#FEF3C7] text-[#B45309] border border-[#FCD34D]">
                                 <span>⏳</span>
-                                <span>Menunggu Pengesahan</span>
+                                <span>Menunggu Validasi</span>
                               </span>
                               <button
                                 type="button"
@@ -1064,7 +1418,7 @@ export default function LogbookPage({ user }) {
                             <>
                               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-[#DCFCE7] text-[#15803D] border border-[#86EFAC]">
                                 <span>🛡️</span>
-                                <span>Tervalidasi TTE ✓</span>
+                                <span>Tervalidasi</span>
                               </span>
                               <button
                                 type="button"
@@ -1081,7 +1435,7 @@ export default function LogbookPage({ user }) {
                             <>
                               <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200">
                                 <span>⚠️</span>
-                                <span>Perlu Perbaikan Bawahan</span>
+                                <span>Revisi</span>
                               </span>
                               <button
                                 type="button"
@@ -1198,7 +1552,7 @@ export default function LogbookPage({ user }) {
             {/* Card 1: TERVALIDASI TTE */}
             <div className="bg-[#ECFDF5] rounded-2xl p-5 border border-emerald-100 shadow-2xs flex flex-col justify-between">
               <div className="flex items-start justify-between">
-                <span className="text-[10px] font-bold tracking-wider text-emerald-800 uppercase">TERVALIDASI TTE</span>
+                <span className="text-[10px] font-bold tracking-wider text-emerald-800 uppercase">TERVALIDASI</span>
                 <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-base">🛡️</div>
               </div>
               <div className="mt-3">
@@ -1222,7 +1576,7 @@ export default function LogbookPage({ user }) {
             {/* Card 2: MENUNGGU REVIEW */}
             <div className="bg-[#FFFBEB] rounded-2xl p-5 border border-amber-100 shadow-2xs flex flex-col justify-between">
               <div className="flex items-start justify-between">
-                <span className="text-[10px] font-bold tracking-wider text-amber-800 uppercase">MENUNGGU REVIEW</span>
+                <span className="text-[10px] font-bold tracking-wider text-amber-800 uppercase">MENUNGGU VALIDASI</span>
                 <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-base">⏳</div>
               </div>
               <div className="mt-3">
@@ -1246,7 +1600,7 @@ export default function LogbookPage({ user }) {
               }`}>
               <div className="flex items-start justify-between">
                 <span className={`text-[10px] font-bold tracking-wider uppercase ${revisiCount > 0 ? 'text-red-700' : 'text-blue-800'}`}>
-                  PERLU PERBAIKAN
+                  REVISI
                 </span>
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-base ${revisiCount > 0 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-700'
                   }`}>
@@ -1342,7 +1696,7 @@ export default function LogbookPage({ user }) {
                         onClick={() => setSelectedStatusTab(tab)}
                         className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${isActive ? 'bg-[#0F5132] text-white shadow-2xs' : 'text-gray-600 hover:text-gray-900'}`}
                       >
-                        {tab}
+                        {tab === 'Review' ? 'Menunggu Validasi' : tab}
                       </button>
                     );
                   })}
@@ -1468,17 +1822,17 @@ export default function LogbookPage({ user }) {
                         <td className="py-4 px-4 align-top w-[14%]">
                           {item.statusKey === 'revisi' && (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#EEF2FF] text-[#4F46E5] border border-[#C7D2FE]">
-                              <span>🔄</span><span>Perlu Perbaikan</span>
+                              <span>🔄</span><span>Revisi</span>
                             </span>
                           )}
                           {item.statusKey === 'sah' && (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#DCFCE7] text-[#15803D] border border-[#86EFAC]">
-                              <span>🛡️</span><span>Tervalidasi TTE ✓</span>
+                              <span>🛡️</span><span>Tervalidasi</span>
                             </span>
                           )}
                           {item.statusKey === 'review' && (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#FEF3C7] text-[#B45309] border border-[#FCD34D]">
-                              <span>⏳</span><span>Menunggu Review</span>
+                              <span>⏳</span><span>Menunggu Validasi</span>
                             </span>
                           )}
                         </td>
@@ -1628,11 +1982,7 @@ export default function LogbookPage({ user }) {
                     onDrop={(e) => {
                       e.preventDefault();
                       setIsDragging(false);
-                      if (e.dataTransfer.files?.[0]) {
-                        const file = e.dataTransfer.files[0];
-                        setEvidenFile(file);
-                        setEvidenTitle(file.name.replace(/\.[^/.]+$/, ''));
-                      }
+                      handleSelectEvidenceFile(e.dataTransfer.files?.[0]);
                     }}
                     onClick={() => document.getElementById('logbook-file-input').click()}
                     className={`md:col-span-7 bg-[#F4F8FC] rounded-2xl p-5 border transition-all flex flex-col items-center justify-center text-center cursor-pointer ${isDragging ? 'border-[#0F5132] bg-[#E8F4EC]' : 'border-dashed border-[#C5D7F2] hover:border-[#0F5132]/60'}`}
@@ -1641,13 +1991,10 @@ export default function LogbookPage({ user }) {
                       id="logbook-file-input"
                       type="file"
                       className="hidden"
-                      accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png"
+                      accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
                       onChange={(e) => {
-                        if (e.target.files?.[0]) {
-                          const file = e.target.files[0];
-                          setEvidenFile(file);
-                          setEvidenTitle(file.name.replace(/\.[^/.]+$/, ''));
-                        }
+                        handleSelectEvidenceFile(e.target.files?.[0]);
+                        e.target.value = '';
                       }}
                     />
                     <div className="w-11 h-11 rounded-full bg-[#E6F4EA] text-[#0F5132] flex items-center justify-center mb-2.5 shadow-2xs">
@@ -1659,7 +2006,7 @@ export default function LogbookPage({ user }) {
                       <span className="font-bold">Tarik & Jatuhkan Berkas di Sini atau </span>
                       <span className="text-[#0F5132] font-bold underline">Pilih File</span>
                     </div>
-                    <p className="text-[11px] text-gray-400 mt-1">Mendukung format: PDF, DOCX, XLSX, JPG (Maks. 5 MB)</p>
+                    <p className="text-[11px] text-gray-400 mt-1">Format JPG, JPEG, PNG, PDF • Maksimal 5 MB</p>
                   </div>
 
                   {/* Right Column: File Details & Active File Card */}
@@ -1675,28 +2022,23 @@ export default function LogbookPage({ user }) {
                       />
                     </div>
 
-                    {/* Uploaded File Card */}
+                    {/* Preview gambar sebelum disimpan */}
                     {evidenFile ? (
-                      <div className="mt-3 bg-white rounded-xl p-2.5 border border-gray-100 flex items-center justify-between shadow-2xs">
-                        <div className="flex items-center gap-2.5 overflow-hidden">
-                          <div className="text-[#0F5132] shrink-0">
-                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                              <polyline points="14 2 14 8 20 8" />
-                            </svg>
-                          </div>
+                      <div className="mt-3 bg-white rounded-xl p-2.5 border border-gray-100 shadow-2xs">
+                        {evidenPreviewUrl && (getEvidenceMimeType(evidenFile) === 'application/pdf'
+                          ? <iframe src={evidenPreviewUrl} title="Pratinjau PDF bukti kegiatan" className="w-full h-48 rounded-lg bg-slate-50 mb-2 border border-gray-200" />
+                          : <img src={evidenPreviewUrl} alt="Pratinjau bukti kegiatan" className="w-full max-h-40 object-contain rounded-lg bg-slate-50 mb-2" />)}
+                        <div className="flex items-center justify-between gap-2">
                           <div className="flex flex-col min-w-0">
                             <span className="text-xs font-bold text-gray-800 truncate" title={evidenFile.name}>{evidenFile.name}</span>
-                            <span className="text-[10px] text-gray-400 font-medium">
-                              {(evidenFile.size / (1024 * 1024)).toFixed(1)} MB • Unggahan Valid
-                            </span>
+                            <span className="text-[10px] text-gray-400 font-medium">{(evidenFile.size / (1024 * 1024)).toFixed(2)} MB • Pratinjau siap</span>
                           </div>
+                          <button type="button" onClick={() => { setEvidenFile(null); setEvidenTitle(''); }} className="text-gray-400 hover:text-red-500 p-1 rounded-md text-xs font-bold cursor-pointer transition-colors" title="Hapus berkas">×</button>
                         </div>
-                        <button type="button" onClick={() => { setEvidenFile(null); setEvidenTitle(''); }} className="text-gray-400 hover:text-red-500 p-1 rounded-md text-xs font-bold cursor-pointer transition-colors" title="Hapus berkas">✕</button>
                       </div>
                     ) : (
                       <div className="mt-3 py-3 px-3 bg-white/60 rounded-xl border border-dashed border-gray-200 text-center text-[11px] text-gray-400">
-                        Belum ada berkas yang dipilih.
+                        Pilih gambar untuk melihat pratinjau sebelum menyimpan.
                       </div>
                     )}
                   </div>
@@ -1729,17 +2071,17 @@ export default function LogbookPage({ user }) {
           MODAL 2: Detail Logbook & Penanganan Revisi
       ═══════════════════════════════════════════════════════════════════════ */}
       {selectedLogbookDetail && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl border border-gray-100 overflow-hidden animate-scale-up">
+        <div className={isRevisionDetail ? 'revision-detail min-h-screen py-4 sm:py-8' : 'fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4'}>
+          <div className={isRevisionDetail ? 'bg-white rounded-2xl w-full max-w-5xl mx-auto shadow-sm border border-gray-200 overflow-hidden' : 'bg-white rounded-2xl w-full max-w-xl shadow-2xl border border-gray-100 overflow-hidden animate-scale-up'}>
             <div className="px-6 py-4 bg-gray-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-base font-bold">Detail Entri Logbook</span>
+                <span className="text-base font-bold">{isRevisionDetail ? 'Detail Logbook • Mode Revisi' : 'Detail Entri Logbook'}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-white/20 text-white font-semibold">ID #{selectedLogbookDetail.id}</span>
               </div>
-              <button onClick={() => setSelectedLogbookDetail(null)} className="text-gray-300 hover:text-white text-xl font-bold p-1 cursor-pointer">✕</button>
+              <button onClick={() => setSelectedLogbookDetail(null)} className="text-gray-300 hover:text-white text-sm font-bold p-1 cursor-pointer">{isRevisionDetail ? 'Kembali ke daftar' : '✕'}</button>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto text-xs">
+            <div className={`p-6 space-y-4 ${isRevisionDetail ? 'text-sm' : 'max-h-[80vh] overflow-y-auto text-xs'}`}>
               {/* Alert jika butuh perbaikan */}
               {selectedLogbookDetail.statusKey === 'revisi' && (
                 <div className="p-4 rounded-xl bg-red-50 border border-red-200">
@@ -1747,21 +2089,49 @@ export default function LogbookPage({ user }) {
                     <span>⚠️</span>
                     <span>Catatan Review Peninjau (Perlu Perbaikan):</span>
                   </div>
-                  <p className="text-red-700 leading-relaxed font-medium">{selectedLogbookDetail.catatanReviewer}</p>
-                  <div className="mt-2 text-[11px] text-red-600">
-                    Oleh: {selectedLogbookDetail.reviewerName} • {selectedLogbookDetail.tglReview}
-                  </div>
+                  <p className="text-red-700 leading-relaxed font-medium">
+                    {selectedLogbookDetail.catatanReviewer || 'Belum ada catatan dari pimpinan.'}
+                  </p>
+                  {readRevisionAspects(selectedLogbookDetail.aspekRevisi).length > 0 && (
+                    <div className="mt-3 text-red-800 text-[11px]">
+                      <strong>Aspek perbaikan:</strong>{' '}
+                      {readRevisionAspects(selectedLogbookDetail.aspekRevisi)
+                        .map((aspect) => revisionAspectLabels[aspect] || aspect).join(', ')}
+                    </div>
+                  )}
+                  {selectedLogbookDetail.tenggatRevisi && (
+                    <div className="mt-1 text-[11px] font-semibold text-red-800">
+                      Batas pengiriman ulang: {selectedLogbookDetail.tenggatRevisi}
+                    </div>
+                  )}
+                  {selectedLogbookDetail.namaBerkasRevisi && (
+                    <div className="mt-1 text-[11px] text-red-800">
+                      Dokumen catatan/markup: {selectedLogbookDetail.namaBerkasRevisi}
+                    </div>
+                  )}
+                  {selectedLogbookDetail.reviewerName && (
+                    <div className="mt-2 text-[11px] text-red-600">
+                      Oleh: {selectedLogbookDetail.reviewerName} • {selectedLogbookDetail.tglReview}
+                    </div>
+                  )}
                 </div>
               )}
 
               {selectedLogbookDetail.statusKey === 'sah' && (
                 <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <div className="inline-flex px-4 py-2 border-2 border-emerald-700 rounded-lg text-emerald-800 font-black tracking-[0.2em] rotate-[-2deg] mb-3">
+                    TERVALIDASI
+                  </div>
                   <div className="flex items-center gap-2 text-emerald-800 font-bold mb-1">
                     <span>🛡️</span>
                     <span>Tervalidasi TTE Resmi:</span>
                   </div>
-                  <p className="text-emerald-700 leading-relaxed">{selectedLogbookDetail.catatanReviewer}</p>
-                  <div className="mt-2 text-[11px] text-emerald-600">Diverifikasi: {selectedLogbookDetail.reviewerName}</div>
+                  <p className="text-emerald-700 leading-relaxed">
+                    {selectedLogbookDetail.catatanReviewer || 'Belum ada catatan dari pimpinan.'}
+                  </p>
+                  {selectedLogbookDetail.reviewerName && (
+                    <div className="mt-2 text-[11px] text-emerald-600">Diverifikasi: {selectedLogbookDetail.reviewerName}</div>
+                  )}
                 </div>
               )}
 
@@ -1795,50 +2165,191 @@ export default function LogbookPage({ user }) {
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
                   <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Dokumen Eviden</span>
-                  <div className="flex items-center gap-1.5 font-semibold text-blue-700">
-                    <span>📄</span>
-                    <span>{selectedLogbookDetail.berkasNama || '—'}</span>
-                  </div>
+                  {selectedLogbookDetail.berkasId && ['image/jpeg', 'image/png', 'application/pdf'].includes(selectedLogbookDetail.berkasJenis) ? (
+                    <div className="mt-2">
+                      {selectedLogbookDetail.berkasJenis === 'application/pdf' ? (
+                        <iframe src={getLogbookEvidenceUrl(selectedLogbookDetail.id, selectedLogbookDetail.berkasId, currentUserId)} title={`Pratinjau ${selectedLogbookDetail.berkasNama || 'PDF'}`} className="w-full h-[65vh] min-h-[500px] rounded-lg border border-gray-200 bg-white" />
+                      ) : (
+                        <img
+                          src={getLogbookEvidenceUrl(selectedLogbookDetail.id, selectedLogbookDetail.berkasId, currentUserId)}
+                          alt={`Bukti kegiatan ${selectedLogbookDetail.berkasNama || ''}`}
+                          onError={() => setUnavailableEvidenceIds((current) => ({ ...current, [selectedLogbookDetail.berkasId]: true }))}
+                          className="w-full max-h-64 object-contain rounded-lg border border-gray-200 bg-white"
+                        />
+                      )}
+                      {unavailableEvidenceIds[selectedLogbookDetail.berkasId]
+                        ? <span className="text-xs text-amber-700 block mt-2">Bukti kegiatan belum tersedia di penyimpanan backend.</span>
+                        : <span className="text-xs font-semibold text-blue-700 block mt-2 break-all">{selectedLogbookDetail.berkasNama}</span>}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">Bukti kegiatan belum tersedia.</div>
+                  )}
                   <span className="text-[10px] text-gray-400 block mt-0.5">Ukuran: {selectedLogbookDetail.berkasUkuran || '—'}</span>
                 </div>
               </div>
 
-              {/* Form Revisi Cepat jika status 'revisi' */}
+              {/* Pemilik hanya dapat mengubah isi logbook ketika status revisi. */}
               {selectedLogbookDetail.statusKey === 'revisi' && (
                 <form onSubmit={handleResubmitRevision} className="mt-4 pt-4 border-t border-gray-200">
-                  <h4 className="font-bold text-gray-800 mb-2">Ajukan Perbaikan Dokumen:</h4>
-                  <div className="space-y-3">
+                  <h4 className="font-bold text-gray-800 mb-3">Perbaiki logbook sebelum dikirim ulang:</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-gray-600 mb-1 font-medium">Unggah Berkas Baru / Revisi Eviden:</label>
+                      <label className="block text-gray-600 mb-1 font-medium">Tanggal kegiatan *</label>
+                      <input
+                        type="date"
+                        required
+                        value={revisionDraft?.tglKegiatan || ''}
+                        onChange={(e) => setRevisionDraft((draft) => ({ ...draft, tglKegiatan: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 mb-1 font-medium">Kategori *</label>
+                      <select
+                        required
+                        value={revisionDraft?.kategori || ''}
+                        onChange={(e) => setRevisionDraft((draft) => ({ ...draft, kategori: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                      >
+                        {['Pengajaran', 'Penelitian', 'Pengabdian', 'Kepanitiaan SK', 'Administrasi', 'Tugas Tambahan'].map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-gray-600 mb-1 font-medium">Waktu kegiatan</label>
                       <input
                         type="text"
-                        placeholder="Misal: Notula_12Nov_Revisi_TTD.pdf"
-                        value={revisionFileInput}
-                        onChange={(e) => setRevisionFileInput(e.target.value)}
+                        maxLength={40}
+                        value={revisionDraft?.waktu || ''}
+                        onChange={(e) => setRevisionDraft((draft) => ({ ...draft, waktu: e.target.value }))}
+                        placeholder="08:00 - 11:00"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-gray-600 mb-1 font-medium">Butir kegiatan *</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={255}
+                        value={revisionDraft?.judul || ''}
+                        onChange={(e) => setRevisionDraft((draft) => ({ ...draft, judul: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-gray-600 mb-1 font-medium">Nomor SK / dasar kegiatan</label>
+                      <input
+                        type="text"
+                        maxLength={255}
+                        value={revisionDraft?.nomorSk || ''}
+                        onChange={(e) => setRevisionDraft((draft) => ({ ...draft, nomorSk: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-gray-600 mb-1 font-medium">Uraian kegiatan *</label>
+                      <textarea
+                        rows="4"
+                        required
+                        value={revisionDraft?.uraian || ''}
+                        onChange={(e) => setRevisionDraft((draft) => ({ ...draft, uraian: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
                       />
                     </div>
                     <div>
-                      <label className="block text-gray-600 mb-1 font-medium">Catatan Tanggapan Dosen:</label>
+                      <label className="block text-gray-600 mb-1 font-medium">Target / output</label>
                       <textarea
                         rows="2"
-                        placeholder="Jelaskan perbaikan yang telah dilakukan..."
-                        value={revisionNoteInput}
-                        onChange={(e) => setRevisionNoteInput(e.target.value)}
+                        value={revisionDraft?.target || ''}
+                        onChange={(e) => setRevisionDraft((draft) => ({ ...draft, target: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
                       />
                     </div>
+                    <div>
+                      <label className="block text-gray-600 mb-1 font-medium">Hasil / realisasi</label>
+                      <textarea
+                        rows="2"
+                        value={revisionDraft?.hasil || ''}
+                        onChange={(e) => setRevisionDraft((draft) => ({ ...draft, hasil: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-2 rounded-xl border border-blue-100 bg-blue-50/60 p-3 space-y-3">
+                      <div className="font-semibold text-gray-700">Bukti pendukung</div>
+                      {selectedLogbookDetail.berkasId ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white border border-gray-200 p-2">
+                          <span className="text-xs text-gray-700 break-all">Tersimpan: {selectedLogbookDetail.berkasNama}</span>
+                          <a className="text-xs text-blue-700 underline" href={getLogbookEvidenceUrl(selectedLogbookDetail.id, selectedLogbookDetail.berkasId, currentUserId)} target="_blank" rel="noreferrer">Lihat bukti saat ini</a>
+                        </div>
+                      ) : <p className="text-xs text-amber-700">Belum ada bukti tersimpan.</p>}
+                      <label className="block text-gray-600 mb-1 font-medium">Tindakan berkas</label>
+                      <select
+                        value={revisionEvidenceAction}
+                        onChange={(event) => {
+                          const action = event.target.value;
+                          setRevisionEvidenceAction(action);
+                          if (action === 'remove' || action === 'keep') setRevisionEvidenceFile(null);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white"
+                      >
+                        <option value="keep">Pertahankan bukti saat ini</option>
+                        <option value="add">Tambahkan bukti baru</option>
+                        <option value="replace">Ganti semua bukti lama</option>
+                        <option value="remove">Hapus semua bukti</option>
+                      </select>
+                      {['add', 'replace'].includes(revisionEvidenceAction) && (
+                        <>
+                          <input
+                            type="file"
+                            accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (!file) return;
+                              if (!getEvidenceMimeType(file)) {
+                                setRevisionEvidenceFile(null);
+                                event.target.value = '';
+                                alert('Berkas bukti harus berupa JPG, JPEG, PNG, atau PDF.');
+                                return;
+                              }
+                              if (file.size > 5 * 1024 * 1024) {
+                                setRevisionEvidenceFile(null);
+                                event.target.value = '';
+                                alert('Ukuran berkas maksimal 5 MB.');
+                                return;
+                              }
+                              setRevisionEvidenceFile(file);
+                              setRevisionEvidenceAction((action) => action === 'keep' ? 'add' : action);
+                            }}
+                            className="w-full text-xs"
+                          />
+                          {revisionEvidencePreviewUrl && (getEvidenceMimeType(revisionEvidenceFile) === 'application/pdf'
+                            ? <iframe src={revisionEvidencePreviewUrl} title="Pratinjau bukti revisi PDF" className="w-full h-48 rounded-lg border border-gray-200 bg-white" />
+                            : <img src={revisionEvidencePreviewUrl} alt="Pratinjau bukti revisi" className="w-full max-h-52 object-contain rounded-lg border border-gray-200 bg-white" />)}
+                          {revisionEvidenceFile && <p className="text-xs text-gray-600">Berkas terpilih: {revisionEvidenceFile.name}</p>}
+                        </>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSaveRevisionDraft}
+                      disabled={isSavingRevisionDraft || isSubmittingRevision}
+                      className="sm:col-span-2 w-full py-2.5 rounded-lg border border-[#0F5132] text-[#0F5132] hover:bg-emerald-50 font-bold text-xs disabled:opacity-60"
+                    >
+                      {isSavingRevisionDraft ? 'Menyimpan perubahan...' : 'Simpan Perubahan'}
+                    </button>
                     <button
                       type="submit"
-                      disabled={isSubmittingRevision}
-                      className="w-full py-2.5 rounded-lg bg-[#0F5132] hover:bg-[#14532D] text-white font-bold text-xs shadow-xs disabled:opacity-60 flex items-center justify-center gap-2"
+                      disabled={isSubmittingRevision || isSavingRevisionDraft}
+                      className="sm:col-span-2 w-full py-2.5 rounded-lg bg-[#0F5132] hover:bg-[#14532D] text-white font-bold text-xs shadow-xs disabled:opacity-60 flex items-center justify-center gap-2"
                     >
                       {isSubmittingRevision ? (
                         <>
                           <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /></svg>
                           Mengirim...
                         </>
-                      ) : 'Kirim Ulang Revisi ke Peninjau'}
+                      ) : 'Kirim Ulang untuk Validasi'}
                     </button>
                   </div>
                 </form>
@@ -1847,7 +2358,7 @@ export default function LogbookPage({ user }) {
 
             <div className="px-6 py-3 bg-gray-50 border-t border-gray-100 flex justify-end">
               <button onClick={() => setSelectedLogbookDetail(null)} className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold text-xs">
-                Tutup
+                {isRevisionDetail ? 'Kembali ke daftar logbook' : 'Tutup'}
               </button>
             </div>
           </div>
@@ -2224,53 +2735,95 @@ export default function LogbookPage({ user }) {
         </div>
       )}
 
-      {/* Modal Pratinjau Eviden Digital */}
-      {selectedPreviewFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 border border-gray-200 shadow-2xl animate-scale-in">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">📄</span>
-                <h3 className="font-bold text-gray-900 text-sm truncate max-w-xs">{selectedPreviewFile.nama_berkas}</h3>
+      {isRevisionRequestOpen && subordinateDetailData?.logbook && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/55 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+          <form onSubmit={handleRevisionRequestSubmit} className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="px-5 sm:px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
+              <div>
+                <span className="inline-flex px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold mb-2">Status: Perlu Revisi</span>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">Permintaan Revisi &amp; Catatan Perbaikan Logbook</h3>
+                <p className="text-xs text-gray-500 mt-1">{subordinateDetailData.logbook.judul}</p>
               </div>
-              <button
-                onClick={() => setSelectedPreviewFile(null)}
-                className="text-gray-400 hover:text-gray-600 text-lg cursor-pointer p-1"
-              >
-                ✕
+              <button type="button" onClick={() => setIsRevisionRequestOpen(false)} className="text-gray-500 hover:text-gray-900 text-xl p-1" aria-label="Tutup">×</button>
+            </div>
+
+            <div className="p-5 sm:p-6 space-y-4 max-h-[72vh] overflow-y-auto">
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs">
+                <span className="font-bold text-slate-800">Pemilik logbook:</span>{' '}
+                <span className="text-slate-700">{subordinateDetailData.logbook.nama_pegawai} · {subordinateDetailData.logbook.nama_jabatan}</span>
+              </div>
+
+              <fieldset>
+                <legend className="text-xs font-bold text-slate-800 mb-2">Aspek yang perlu diperbaiki <span className="text-red-600">* pilih minimal satu</span></legend>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {Object.entries(revisionAspectLabels).map(([key, label]) => (
+                    <label key={key} className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer ${revisionAspects.includes(key) ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+                      <input
+                        type="checkbox"
+                        checked={revisionAspects.includes(key)}
+                        onChange={(event) => setRevisionAspects((current) => event.target.checked
+                          ? [...current, key]
+                          : current.filter((item) => item !== key))}
+                        className="mt-0.5 accent-amber-700"
+                      />
+                      <span className="text-[11px] text-gray-700 leading-relaxed">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">Uraian catatan revisi &amp; arahan tindak lanjut <span className="text-red-600">*</span></label>
+                <textarea
+                  required
+                  minLength={20}
+                  maxLength={1000}
+                  rows={5}
+                  value={revisionReason}
+                  onChange={(event) => setRevisionReason(event.target.value)}
+                  placeholder="Jelaskan dengan spesifik bagian yang harus diperbaiki dan dokumen pendukung yang diperlukan..."
+                  className="w-full px-3.5 py-3 border border-gray-300 rounded-xl text-xs leading-relaxed focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                />
+                <div className="text-right text-[10px] text-gray-400 mt-1">{revisionReason.length}/1000 karakter (minimal 20)</div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">Batas waktu pengiriman ulang <span className="text-red-600">*</span></label>
+                  <input
+                    type="date"
+                    required
+                    min={getLocalDateString()}
+                    value={revisionDeadline}
+                    onChange={(event) => setRevisionDeadline(event.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">Nama dokumen catatan/markup (opsional)</label>
+                  <input
+                    type="text"
+                    maxLength={255}
+                    value={revisionAttachmentName}
+                    onChange={(event) => setRevisionAttachmentName(event.target.value)}
+                    placeholder="Nama dokumen pendukung"
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 sm:px-6 py-3 bg-slate-50 border-t border-gray-100 flex justify-end gap-2">
+              <button type="button" onClick={() => setIsRevisionRequestOpen(false)} className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 text-xs font-semibold">Batal</button>
+              <button type="submit" disabled={isSubmittingDetailReview} className="px-5 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold disabled:opacity-60">
+                {isSubmittingDetailReview ? 'Mengirim...' : 'Kirim Revisi'}
               </button>
             </div>
-            <div className="py-6 text-center">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center text-3xl mb-3">
-                📑
-              </div>
-              <div className="font-bold text-gray-800 text-sm">{selectedPreviewFile.nama_berkas}</div>
-              <div className="text-xs text-gray-500 mt-1">Ukuran: {selectedPreviewFile.ukuran_berkas} • {selectedPreviewFile.keterangan || 'SHA-256 Verified'}</div>
-              <div className="mt-4 p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-600 text-left space-y-1">
-                <div>Status Verifikasi: <strong className="text-emerald-700">✓ SHA-256 Integritas Valid</strong></div>
-                <div>Lokasi Arsip: <span className="font-mono text-[11px] text-gray-500">{selectedPreviewFile.lokasi_berkas}</span></div>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
-              <button
-                onClick={() => setSelectedPreviewFile(null)}
-                className="px-4 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 cursor-pointer"
-              >
-                Tutup
-              </button>
-              <button
-                onClick={() => {
-                  alert(`Mengunduh berkas eviden: ${selectedPreviewFile.nama_berkas}`);
-                  setSelectedPreviewFile(null);
-                }}
-                className="px-4 py-2 rounded-xl bg-[#0F5132] text-white text-xs font-bold hover:bg-[#14532D] shadow-xs cursor-pointer"
-              >
-                Unduh Berkas
-              </button>
-            </div>
-          </div>
+          </form>
         </div>
       )}
+
+
     </div>
   );
 }

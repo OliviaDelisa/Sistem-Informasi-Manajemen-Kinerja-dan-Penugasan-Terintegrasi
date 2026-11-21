@@ -284,6 +284,42 @@ async function seedDatabase(connection) {
         }
     }
 
+    // Re-route every pending entry directly from the owner's role to its designated reviewer.
+    // This also repairs entries created under the older multi-step approval flow.
+    await connection.execute(
+        `UPDATE logbook l
+         JOIN pengguna owner ON owner.id_pengguna = l.id_pengguna
+         JOIN \`role\` ownerRole ON ownerRole.id_role = owner.id_role
+         LEFT JOIN pengguna directReviewer ON directReviewer.id_pengguna = owner.id_atasan
+         LEFT JOIN \`role\` directReviewerRole ON directReviewerRole.id_role = directReviewer.id_role
+         SET l.id_peninjau_aktif = COALESCE(
+             CASE
+                 WHEN directReviewerRole.nama_role = CASE ownerRole.nama_role
+                     WHEN 'Dosen' THEN 'Kasi'
+                     WHEN 'Tendik' THEN 'Kasi'
+                     WHEN 'Kasi' THEN 'Kepala Kantor'
+                     WHEN 'Kepala Kantor' THEN 'Dekan / Wakil Dekan'
+                 END THEN directReviewer.id_pengguna
+             END,
+             (
+                 SELECT candidate.id_pengguna
+                 FROM pengguna candidate
+                 JOIN \`role\` candidateRole ON candidateRole.id_role = candidate.id_role
+                 WHERE candidateRole.nama_role = CASE ownerRole.nama_role
+                     WHEN 'Dosen' THEN 'Kasi'
+                     WHEN 'Tendik' THEN 'Kasi'
+                     WHEN 'Kasi' THEN 'Kepala Kantor'
+                     WHEN 'Kepala Kantor' THEN 'Dekan / Wakil Dekan'
+                 END
+                   AND candidate.status_akun = 'aktif'
+                 ORDER BY (candidate.id_unit = owner.id_unit) DESC, candidate.id_pengguna ASC
+                 LIMIT 1
+             )
+         )
+         WHERE l.status IN ('diajukan', 'direview')
+           AND ownerRole.nama_role IN ('Dosen', 'Tendik', 'Kasi', 'Kepala Kantor')`,
+    );
+
     // Seed sample Penugasan, Delegasi, Respons, & Riwayat Penugasan if empty
     const [[penCount]] = await connection.execute("SELECT COUNT(*) AS cnt FROM penugasan");
     if (Number(penCount.cnt) === 0) {
